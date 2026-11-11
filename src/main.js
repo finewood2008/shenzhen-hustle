@@ -381,4 +381,4 @@ function endGame() {
 }
 
 startScreen();
-window.__game = { get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id }; } }; // 方便调试
+window.__game = { peek(id, x) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id }; } }; // 方便调试

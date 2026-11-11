@@ -3,6 +3,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { ROADS } from './content.js';
 import { labelSprite } from './models.js';
 import { createStreet } from './street.js';
+import { buildLandmark } from './landmarks.js';
 
 const DAY = new THREE.Color(0xa8d8f0), NIGHT = new THREE.Color(0x0e1633);
 
@@ -80,6 +81,14 @@ export function createScene(container, districts, handlers) {
     let seed = idx * 9973 + 17;
     const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const st = d.style, placed = [];
+    // 本区地标的缩小版，放在圆盘中间偏后
+    const lm = buildLandmark(d.id, true);
+    const lmR = lm ? lm.userData.mapScale * 7 : 0;
+    if (lm) {
+      lm.scale.setScalar(lm.userData.mapScale);
+      lm.position.set(0, 0.14, -1);
+      g.add(lm);
+    }
     let top = 0;
     for (let tries = 0; placed.length < st.n && tries < 300; tries++) {
       const a = r() * Math.PI * 2, rad = Math.sqrt(r()) * 2.5;
@@ -88,6 +97,7 @@ export function createScene(container, districts, handlers) {
       const h = st.h[0] + r() * r() * (st.h[1] - st.h[0]) * 1.6;
       const color = st.palette[Math.floor(r() * st.palette.length)];
       if (Math.hypot(x, z - 2.3) < 1 + w / 2) continue; // 给玩家棋子留位置
+      if (lm && Math.hypot(x, z + 1) < lmR + w / 2) continue; // 给地标留位置
       if (placed.some(p => Math.hypot(p.x - x, p.z - z) < (p.w + w) * 0.62)) continue;
       const hh = Math.min(h, st.h[1]);
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, w * (0.8 + r() * 0.4)),
@@ -99,6 +109,7 @@ export function createScene(container, districts, handlers) {
       top = Math.max(top, hh);
     }
 
+    if (lm) top = Math.max(top, new THREE.Box3().setFromObject(lm).max.y);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(3.7, 0.12, 8, 48),
       new THREE.MeshBasicMaterial({ color: 0xffffff }));
     ring.rotation.x = Math.PI / 2; ring.position.y = 0.2; ring.visible = false;
@@ -272,7 +283,7 @@ export function createScene(container, districts, handlers) {
       street.setActive(m === 'street');
       el.style.cursor = m === 'street' ? 'pointer' : 'grab';
     },
-    enterStreet(district, idx, spots) { street.enter(district, idx, spots); this.setMode('street'); },
+    enterStreet(district, idx, spots, startX) { street.enter(district, idx, spots, startX); this.setMode('street'); },
     // rumor: { district, text, up } 或 null
     setRumor(rumor) {
       if (rumorNode && rumorNode.beacon) {
