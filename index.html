@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>深圳搞钱记</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage"></div>
+
+  <header id="hud"></header>
+  <aside id="panel"></aside>
+  <section id="log"></section>
+  <div id="bar" hidden></div>
+  <div id="travel" hidden></div>
+  <div id="toast" hidden></div>
+
+  <div id="modal" hidden>
+    <form class="card" id="modal-card">
+      <h3 id="modal-title"></h3>
+      <p id="modal-hint"></p>
+      <div class="amount-row">
+        <input id="modal-num" type="number" min="0" step="1" inputmode="numeric">
+        <button type="button" data-frac="0.5">一半</button>
+        <button type="button" data-frac="1">最大</button>
+      </div>
+      <input id="modal-range" type="range" min="0" step="1">
+      <p id="modal-total"></p>
+      <div class="btn-row">
+        <button type="button" id="modal-cancel">取消</button>
+        <button type="submit" class="primary" id="modal-ok">确定</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="screen"></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
