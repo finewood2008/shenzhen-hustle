@@ -332,8 +332,9 @@ function startScreen() {
     <div class="sub">一个行李箱，三十天，一座不睡觉的城市</div>
     <div class="intro">
       你揣着老乡会借的 ${yuan(CONFIG.startDebt)} 来到深圳，手里还剩 ${yuan(CONFIG.startCash)} 现金。<br>
-      · 在街上走动：WASD / 方向键，或者点击地面。<br>
-      · 靠近档口按 E 看货，低买高卖。<br>
+      · 第一人称逛街：按住拖动转视角，WASD 走动，← → 转身；也可以直接点地面走过去。<br>
+      · 靠近档口按 E（或直接点它）看货，低买高卖。<br>
+      · 每个区的街都不一样，地标在街的东头。<br>
       · 去地铁站打开地图换区，每换一次过一天。<br>
       · 欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖口岸的老乡会才能还。<br>
       · 地图上飘着小道消息：红色是要涨，绿色是要跌。<br>
@@ -381,4 +382,4 @@ function endGame() {
 }
 
 startScreen();
-window.__game = { peek(id, x) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id }; } }; // 方便调试
+window.__game = { peek(id, x, yaw) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x, yaw); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id }; } }; // 方便调试

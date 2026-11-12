@@ -281,9 +281,9 @@ export function createScene(container, districts, handlers) {
     setMode(m) {
       mode = m;
       street.setActive(m === 'street');
-      el.style.cursor = m === 'street' ? 'pointer' : 'grab';
+      el.style.cursor = 'grab';
     },
-    enterStreet(district, idx, spots, startX) { street.enter(district, idx, spots, startX); this.setMode('street'); },
+    enterStreet(district, idx, spots, startX, startYaw) { street.enter(district, idx, spots, startX, startYaw); this.setMode('street'); },
     // rumor: { district, text, up } 或 null
     setRumor(rumor) {
       if (rumorNode && rumorNode.beacon) {
