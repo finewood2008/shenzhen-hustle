@@ -523,7 +523,7 @@ function heroHtml() {
     <div class="badge">
       <i class="clip"></i>
       <div class="ava">${heroPortrait(h)}</div>
-      <input type="text" id="hero-name" maxlength="8" placeholder="点这里起名" value="${h.name.replace(/"/g, '&quot;')}" aria-label="名字">
+      <input type="text" id="hero-name" maxlength="10" placeholder="点这里起名" value="${h.name.replace(/"/g, '&quot;')}" aria-label="名字">
       <small>${getAccount() ? '账号 ' + getAccount().id : '深圳搞钱人 · 第 1 天报到'}</small>
       <button class="dice" data-random title="随机一个">🎲 随机</button>
     </div>
