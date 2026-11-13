@@ -486,6 +486,26 @@ export function play(s, scene) {
   };
 }
 
+// 结算时的总结：把这一局做过的事写成几段话
+export function summary(s, score, name) {
+  const st = s.stats || {}, out = [];
+  out.push(`第 1 天，${name}拖着一个行李箱走出罗湖口岸，口袋里是老乡会借来的 ${yuan(CONFIG.startDebt)}。`);
+  const deals = (st.buys || 0) + (st.sells || 0);
+  let mid = deals ? `三十天里，做了 ${deals} 笔买卖` : '三十天里，一笔买卖也没做成';
+  if (st.delivered) mid += `，送成了 ${st.delivered} 张订单`;
+  if (st.haggleWin) mid += `，砍价赢了 ${st.haggleWin} 回`;
+  out.push(mid + `。手头最阔的时候，有 ${yuan(st.peak || s.cash)}。`);
+  const bumps = [];
+  if (st.caught) bumps.push(`碰过烧心货，被人当场退了 ${st.caught} 回，长了记性`);
+  if (st.expired) bumps.push(`有 ${st.expired} 张订单没赶上，欠着人家一句对不起`);
+  if (bumps.length) out.push(bumps.join('；') + '。');
+  out.push(score < 0 ? '第三十天一结账，账面是负的。钱没留住，路倒是跑熟了。'
+    : score < 50000 ? '第三十天一结账，有了点结余。不多，但每一块都是自己跑出来的。'
+    : score < 1500000 ? '第三十天一结账，数字后面的零多得要数两遍。在这座城市，算是站住了。'
+    : '第三十天一结账，连档口老板都来打听你是怎么做到的。');
+  return out;
+}
+
 // 结局旁白：看欠款和人情
 export function epilogue(s) {
   const out = [];

@@ -37,6 +37,7 @@ const DEFAULTS = {
   stats: { debt: true, bank: true, health: true, pack: true, favor: true },
   showOrders: true, showLog: true,
   view: 'iso', speed: 24,
+  music: true, sfx: true,
   hero: { name: '', shirt: SHIRTS[0], pack: PACKS[0], hair: 'short', skirt: false },
 };
 

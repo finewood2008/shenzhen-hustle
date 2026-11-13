@@ -34,4 +34,6 @@ node test/sim.mjs
 - `src/scene.js` 城市沙盘
 - `src/street.js`、`src/streetscape.js`、`src/landmarks.js` 可行走街区和各区街景
 - `src/main.js` 界面与交互
+- `src/audio.js` 合成的音乐和音效
+- `src/net.js`、`api/` 自动账号和天梯排行榜（Vercel 函数 + Upstash Redis）
 - `vendor/` Three.js r160（MIT）

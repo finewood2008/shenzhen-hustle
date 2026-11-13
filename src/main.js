@@ -3,8 +3,10 @@
 import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
-import { CAST, nextScene, play, epilogue, walkerKind, walkerScene, shadyScene } from './story.js';
+import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene } from './story.js';
+import { getAccount, ensureAccount, rename, submitScore, fetchBoard } from './net.js';
 import { portrait, heroPortrait } from './portraits.js';
+import { initAudio, applyAudioSettings, setMood, sfx } from './audio.js';
 import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES, PRESETS, NAMES } from './settings.js';
 
 const $ = sel => document.querySelector(sel);
@@ -53,6 +55,7 @@ function spotsFor(d) {
 }
 function enterStreet() {
   const d = D[s.loc];
+  setMood(DISTRICTS.indexOf(d));
   mode = 'street'; nearSpot = null; activeSpot = null;
   view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d));
 }
@@ -69,12 +72,14 @@ function interact(spot) {
   }
 }
 function showMap() {
+  setMood(DISTRICTS.indexOf(D[s.loc]), true);
   mode = 'map'; activeSpot = null; nearSpot = null;
   view.setMode('map');
   view.focus(s.loc);
   render();
 }
 function backToStreet() {
+  setMood(DISTRICTS.indexOf(D[s.loc]));
   $('#travel').hidden = true;
   mode = 'street';
   view.setMode('street');
@@ -297,6 +302,7 @@ function startScene(sc, then, seed = 0) {
 }
 function showLine() {
   const cur = scene.p.current();
+  if (cur && cur.who !== 'narr') sfx.talk();
   if (!cur) {
     const then = scene.then;
     clearInterval(scene.timer);
@@ -322,6 +328,7 @@ function showLine() {
   scene.timer = setInterval(() => {
     scene.shown = settings.speed ? Math.min(scene.full.length, Math.floor((performance.now() - t0) / settings.speed) + 1) : scene.full.length;
     dlg.text.textContent = scene.full.slice(0, scene.shown);
+    if (scene.shown < scene.full.length) sfx.blip();
     if (scene.shown >= scene.full.length) lineDone();
   }, 26);
 }
@@ -340,7 +347,7 @@ function advance() {
   if (scene.shown < scene.full.length) lineDone();
   else if (!scene.cur.choices) {
     const result = scene.p.next();
-    if (result) { say(result, 'rumor'); toast(result, 3000); render(); }
+    if (result) { say(result, 'rumor'); toast(result, 3000); sfx.coin(); render(); }
     showLine();
   }
 }
@@ -348,7 +355,7 @@ function choose(i) {
   if (!scene || scene.shown < scene.full.length || !scene.cur.choices) return;
   const result = scene.p.choose(i);
   if (result === null) return;
-  if (result) { say(result, 'rumor'); toast(result, 3000); }
+  if (result) { say(result, 'rumor'); toast(result, 3000); sfx.coin(); }
   render();
   showLine();
 }
@@ -375,7 +382,7 @@ $('#panel').addEventListener('click', e => {
     askAmount({
       title: shady ? `买入 ${g.name}（烧心货）` : `买入 ${g.name}`, hint: `${shady ? '七折价' : '单价'} ${yuan(p)}，最多能买 ${L.maxBuy(s, buy)}`, max: L.maxBuy(s, buy),
       total: n => `花费 ${yuan(n * p)}`,
-      onOk: n => { if (L.buy(s, buy, n)) say(`买入 ${g.name} ×${n}，花了 ${yuan(n * p)}`); },
+      onOk: n => { if (L.buy(s, buy, n)) { sfx.buy(); say(`买入 ${g.name} ×${n}，花了 ${yuan(n * p)}`); } },
     });
   } else if (sell) {
     const g = G[sell], p = s.market[sell], it = s.inv[sell], avg = it.cost / it.qty;
@@ -385,6 +392,7 @@ $('#panel').addEventListener('click', e => {
       onOk: n => {
         const r = L.sell(s, sell, n);
         if (!r) return;
+        if (r.caught) sfx.fail(); else sfx.sell();
         if (r.caught) {
           const t = `“这批货有问题！”${r.bad} 件${g.name}被当场退货，钱没收到，货也废了。人情 -1`;
           say(t); toast(t, 4200);
@@ -394,22 +402,23 @@ $('#panel').addEventListener('click', e => {
     });
   } else if (act === 'deposit') {
     askAmount({ title: '存款', hint: `现金 ${yuan(s.cash)}`, max: s.cash, total: n => `存入 ${yuan(n)}`,
-      onOk: n => { if (L.deposit(s, n)) say(`存入银行 ${yuan(n)}`); } });
+      onOk: n => { if (L.deposit(s, n)) sfx.coin(), say(`存入银行 ${yuan(n)}`); } });
   } else if (act === 'withdraw') {
     askAmount({ title: '取款', hint: `存款 ${yuan(s.bank)}`, max: s.bank, total: n => `取出 ${yuan(n)}`,
-      onOk: n => { if (L.withdraw(s, n)) say(`从银行取出 ${yuan(n)}`); } });
+      onOk: n => { if (L.withdraw(s, n)) sfx.coin(), say(`从银行取出 ${yuan(n)}`); } });
   } else if (act === 'repay') {
     askAmount({ title: '还钱给老乡会', hint: `欠款 ${yuan(s.debt)}，现金 ${yuan(s.cash)}`, max: Math.min(s.cash, s.debt),
       total: n => `还款 ${yuan(n)}，还剩 ${yuan(s.debt - n)}`,
-      onOk: n => { if (L.repay(s, n)) say(s.debt === 0 ? '欠款还清了，一身轻松。' : `还了 ${yuan(n)}，还欠 ${yuan(s.debt)}`); } });
+      onOk: n => { if (L.repay(s, n)) sfx.coin(), say(s.debt === 0 ? '欠款还清了，一身轻松。' : `还了 ${yuan(n)}，还欠 ${yuan(s.debt)}`); } });
   } else if (act === 'borrow') {
     const max = L.borrowLimit(s);
     askAmount({ title: '向老乡会再借一点', hint: `最多还能借 ${yuan(max)}，日息 ${CONFIG.debtRate * 100}%`, max,
       total: n => `借 ${yuan(n)}，欠款变成 ${yuan(s.debt + n)}`,
-      onOk: n => { if (L.borrow(s, n)) say(`又向老乡会借了 ${yuan(n)}，现在欠 ${yuan(s.debt)}`); } });
+      onOk: n => { if (L.borrow(s, n)) sfx.coin(), say(`又向老乡会借了 ${yuan(n)}，现在欠 ${yuan(s.debt)}`); } });
   } else if (act === 'haggle') {
     const res = L.haggle(s, activeSpot.id, activeSpot.goods);
     if (res) {
+      if (res === 'win') sfx.win(); else sfx.fail();
       const t = res === 'win' ? '“行，老主顾的规矩：价让你一点，料不能减。”' : '“价钱能谈，规矩不能坏。今天就这个价。”';
       say(res === 'win' ? '砍价成功，这个档口今天便宜 12%。' : '砍价失败，这个档口今天贵了 6%。');
       toast(t, 3200);
@@ -418,9 +427,9 @@ $('#panel').addEventListener('click', e => {
   } else if (act === 'heal') {
     const max = Math.min(100 - s.health, Math.floor(s.cash / CONFIG.clinicCost));
     askAmount({ title: '社康看病', hint: `当前体力 ${s.health}`, max, total: n => `恢复 ${n} 点，花费 ${yuan(n * CONFIG.clinicCost)}`,
-      onOk: n => { if (L.heal(s, n)) say(`看了病，体力恢复到 ${s.health}`); } });
+      onOk: n => { if (L.heal(s, n)) sfx.coin(), say(`看了病，体力恢复到 ${s.health}`); } });
   } else if (act === 'storage') {
-    if (L.expandStorage(s)) say(`租了个小仓，背包容量升到 ${s.capacity}`);
+    if (L.expandStorage(s)) sfx.coin(), say(`租了个小仓，背包容量升到 ${s.capacity}`);
     render();
   } else if (act === 'close') {
     activeSpot = null; render();
@@ -455,6 +464,9 @@ $('#dock').addEventListener('click', e => {
   else if (act === 'log') { settings.showLog = !settings.showLog; saveSettings(); }
   render();
 });
+
+// 所有按钮点一下都有轻轻的一声
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('button')) sfx.tap(); }, true);
 
 // ---------- 触屏摇杆 ----------
 const TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -512,7 +524,7 @@ function heroHtml() {
       <i class="clip"></i>
       <div class="ava">${heroPortrait(h)}</div>
       <input type="text" id="hero-name" maxlength="8" placeholder="点这里起名" value="${h.name.replace(/"/g, '&quot;')}" aria-label="名字">
-      <small>深圳搞钱人 · 第 1 天报到</small>
+      <small>${getAccount() ? '账号 ' + getAccount().id : '深圳搞钱人 · 第 1 天报到'}</small>
       <button class="dice" data-random title="随机一个">🎲 随机</button>
     </div>
     <div class="looks">
@@ -526,7 +538,11 @@ function heroHtml() {
 }
 // 形象选项的点击和输入，封面和设置面板共用。返回 true 表示需要重画
 function heroInput(e) {
-  if (e.target.id === 'hero-name') { settings.hero.name = e.target.value; saveSettings(); return false; }
+  if (e.target.id === 'hero-name') {
+    settings.hero.name = e.target.value; saveSettings();
+    if (e.type === 'change') syncName(); // 改完名字（输入框失去焦点）再同步到服务器
+    return false;
+  }
   if (e.type !== 'click' || !e.target.closest) return false;
   const h = settings.hero;
   const tab = e.target.closest('[data-herotab]'), pre = e.target.closest('[data-preset]'), b = e.target.closest('[data-hero]');
@@ -534,6 +550,7 @@ function heroInput(e) {
   if (pre) Object.assign(h, PRESETS[Number(pre.dataset.preset)], { name: h.name });
   else if (e.target.closest('[data-random]')) {
     const pick = a => a[Math.floor(Math.random() * a.length)];
+    setTimeout(syncName, 0);
     Object.assign(h, { name: pick(NAMES), shirt: pick(SHIRTS), pack: pick(PACKS), hair: pick(HAIRSTYLES).id, skirt: Math.random() < 0.4 });
   } else if (b) {
     const k = b.dataset.hero, v = b.dataset.val;
@@ -543,6 +560,47 @@ function heroInput(e) {
   view.refreshPlayer();
   return true;
 }
+// ---------- 账号和天梯 ----------
+// 把昵称同步到服务器；不合适的名字会被退回
+async function syncName() {
+  const want = settings.hero.name.trim();
+  if (!want || (getAccount() && getAccount().name === want)) return;
+  const d = await rename(want);
+  if (!d) return;
+  if (d.rejected || d.name !== want) {
+    settings.hero.name = d.name; saveSettings();
+    const input = $('#hero-name');
+    if (input) input.value = d.name;
+    if (d.rejected) toastAnywhere('这个名字用不了，先用回原来的。');
+  }
+  if (s && !s.over) render();
+}
+function toastAnywhere(text) { // 封面上没有 HUD，提示直接显示在名字输入框下面
+  const small = document.querySelector('.badge small');
+  if (small) { small.textContent = text; small.style.color = 'var(--danger)'; } else toast(text);
+}
+const BOARD_MSG = { not_configured: '天梯暂未开通', offline: '连不上服务器，天梯看不了', no_account: '连不上服务器，这局没有计入天梯', slow_down: '提交太频繁，稍后再试' };
+// 排行榜的列表。limit 是显示前几名；自己不在里面时在末尾补一行
+function boardHtml(d, limit) {
+  if (!d) return '<div class="boardmsg">正在读取天梯…</div>';
+  if (d.error) return `<div class="boardmsg">${BOARD_MSG[d.error] || '天梯暂时看不了'}</div>`;
+  if (!d.top.length) return '<div class="boardmsg">还没有人上榜，第一个就是你。</div>';
+  const mine = getAccount() && getAccount().id;
+  const row = (r, me) => `<li class="${me ? 'me' : ''} ${r.rank <= 3 ? 'top' + r.rank : ''}"><b>${r.rank}</b><span>${String(r.name).replace(/[<>&]/g, '')}${me ? '（你）' : ''}</span><em>${yuan(r.score)}</em></li>`;
+  let html = d.top.slice(0, limit).map(r => row(r, r.id === mine)).join('');
+  if (d.me && d.me.rank > limit) html += `<li class="gap">…</li>` + row({ rank: d.me.rank, name: getAccount().name, score: d.me.score }, true);
+  return `<ol class="board">${html}</ol><div class="boardmsg">共 ${d.total} 人上榜${d.me ? `，你排第 ${d.me.rank}` : ''}</div>`;
+}
+function openBoard() {
+  const sh = $('#sheet');
+  const draw = d => { sh.innerHTML = `<div class="card glass"><header><b>🏆 天梯</b><button data-close>关闭</button></header><section><h4>三十天后的净资产 · 前 50 名</h4><div>${boardHtml(d, 50)}</div></section></div>`; };
+  sh.onclick = e => { if (e.target === sh || e.target.closest('[data-close]')) { sh.hidden = true; if (s) render(); } };
+  sh.oninput = null;
+  draw(null);
+  sh.hidden = false;
+  fetchBoard().then(d => { if (!sh.hidden) draw(d); });
+}
+
 function openSettings() {
   const sh = $('#sheet');
   const draw = () => {
@@ -558,6 +616,10 @@ function openSettings() {
         <div class="opt"><span>余额卡片显示</span><div class="seg">${STATS.map(o => `<button data-stat="${o.id}" class="${settings.stats[o.id] ? 'on' : ''}">${o.name}</button>`).join('')}</div></div>
         <div class="opt"><span>订单清单</span>${seg('showOrders', [{ id: 'true', name: '显示' }, { id: 'false', name: '隐藏' }], settings.showOrders)}</div>
         <div class="opt"><span>消息记录</span>${seg('showLog', [{ id: 'true', name: '显示' }, { id: 'false', name: '隐藏' }], settings.showLog)}</div>
+      </section>
+      <section><h4>声音</h4>
+        <div class="opt"><span>背景音乐</span>${seg('music', [{ id: 'true', name: '开' }, { id: 'false', name: '关' }], settings.music)}</div>
+        <div class="opt"><span>音效</span>${seg('sfx', [{ id: 'true', name: '开' }, { id: 'false', name: '关' }], settings.sfx)}</div>
       </section>
       <section><h4>游戏</h4>
         <div class="opt"><span>默认视角</span>${seg('view', [{ id: 'iso', name: '斜俯视' }, { id: 'fp', name: '第一人称' }], settings.view)}</div>
@@ -576,7 +638,8 @@ function openSettings() {
     if (b.dataset.stat) settings.stats[b.dataset.stat] = !settings.stats[b.dataset.stat];
     else if (b.dataset.set) {
       const k = b.dataset.set, v = b.dataset.val;
-      settings[k] = k === 'speed' ? Number(v) : k.startsWith('show') ? v === 'true' : v;
+      settings[k] = k === 'speed' ? Number(v) : k.startsWith('show') || k === 'music' || k === 'sfx' ? v === 'true' : v;
+      if (k === 'music' || k === 'sfx') { initAudio(); applyAudioSettings(); }
       if (k === 'view' && s && !s.over) view.setStreetView(v);
     } else return;
     saveSettings(); applySettings(); draw(); render();
@@ -599,6 +662,7 @@ $('#orders').addEventListener('click', e => {
   const t = r.bad
     ? `交货：${G[o.good].name} ×${o.qty}，其中 ${r.bad} 件烧心货被验了出来，只收到 ${yuan(r.got)} · 人情 -1`
     : `交货：${G[o.good].name} ×${o.qty}，收到 ${yuan(r.got)} · 人情 +1`;
+  if (r.bad) sfx.fail(); else sfx.win();
   say(t, 'rumor'); toast(t, 3600);
   render();
 });
@@ -630,8 +694,10 @@ function go(id) {
   view.setRumor(null);
   $('#toast').hidden = true;
   $('#bar').hidden = true;
+  sfx.metro();
   view.movePlayer(id, () => {
     busy = false;
+    sfx.arrive();
     const lines = [`<b>第 ${s.day} 天 · ${D[id].name}</b>`];
     say(`第 ${s.day} 天，到了${D[id].name}。`);
     if (res.rumorHit) {
@@ -679,7 +745,8 @@ function startScreen() {
     <div class="go">
       ${save ? `<button class="primary" id="resume">继续上一局（第 ${save.s.day} 天 · ${yuan(save.s.cash)}）</button>` : ''}
       <button class="${save ? 'again' : 'primary'}" id="start">${save ? '重新开局' : '开始搞钱'}</button>
-      ${best != null ? `<div class="best">历史最佳 ${yuan(best)}</div>` : ''}
+      <button class="again" id="board">🏆 天梯排行</button>
+      ${best != null ? `<div class="best">我的历史最佳 ${yuan(best)}</div>` : ''}
       <details><summary>怎么玩</summary><div class="intro">
         · 点地面走过去，或用 WASD；按住拖动转镜头，滚轮缩放，按 V 切换第一人称。<br>
         · 走近档口看货，低买高卖；每个档口每天能砍一次价。<br>
@@ -694,7 +761,14 @@ function startScreen() {
   </div>`;
   sc.hidden = false;
   sc.onclick = e => { if (heroInput(e)) { const y = sc.firstElementChild.scrollTop; startScreen(); sc.firstElementChild.scrollTop = y; } };
-  sc.oninput = heroInput;
+  sc.oninput = sc.onchange = heroInput;
+  $('#board').onclick = openBoard;
+  // 第一次来：自动开一个账号，没起名字的话先用分配的昵称
+  if (!getAccount() || !settings.hero.name) ensureAccount().then(a => {
+    if (!a || !$('#hero-name') || sc.hidden) return;
+    if (!settings.hero.name) { settings.hero.name = a.name; saveSettings(); }
+    const y = sc.firstElementChild.scrollTop; startScreen(); sc.firstElementChild.scrollTop = y;
+  });
   $('#start').onclick = () => startGame();
   if (save) $('#resume').onclick = () => startGame(save);
 }
@@ -710,6 +784,7 @@ function startGame(saved) {
   if (document.activeElement) document.activeElement.blur();
   view.setPlayerAt(s.loc);
   view.setStreetView(settings.view);
+  initAudio(); // 开始按钮是一次点击，浏览器从这里起允许出声
   say(saved ? `接着玩：第 ${s.day} 天，${D[s.loc].name}。` : `第 1 天，你拖着行李箱走出${D[s.loc].name}的地铁站。`);
   showRumor();
   enterStreet();
@@ -719,6 +794,7 @@ function startGame(saved) {
 
 function endGame() {
   const r = L.settle(s);
+  sfx.end(r.score > 0);
   clearSave();
   const prev = bestScore();
   const isBest = prev == null || r.score > prev;
@@ -728,18 +804,36 @@ function endGame() {
   $('#panel').hidden = true;
   $('#bar').hidden = true;
   $('#dock').hidden = true;
-  $('#screen').innerHTML = `<div class="card glass">
+  const st = s.stats || {}, name = heroName();
+  const story = summary(s, r.score, name === '你' ? '你' : name).concat(epilogue(s));
+  $('#screen').innerHTML = `<div class="card glass final">
     <div class="scorecard ${r.score < 0 ? 'neg' : ''}">
-      <small>${heroName() === '你' ? '' : heroName() + ' · '}深圳 ${CONFIG.days} 天 · 净资产</small>
-      <div class="score">${yuan(r.score)}</div>
-      <div class="rank">${r.title}</div>
-      <div class="facts"><span>现金 ${yuan(s.cash)}</span><span>存款 ${yuan(s.bank)}</span><span>欠款 ${yuan(s.debt)}</span><span>人情 ${s.favor > 0 ? '+' : ''}${s.favor}</span></div>
+      <div class="ava">${heroPortrait(settings.hero, r.score < 0 ? 'sad' : 'smile')}</div>
+      <div>
+        <small>${name === '你' ? '' : name + ' · '}深圳 ${CONFIG.days} 天 · 净资产</small>
+        <div class="score">${yuan(r.score)}</div>
+        <div class="rank">${r.title}</div>
+      </div>
     </div>
-    <p style="color:var(--text);margin-top:12px">${r.line}</p>
-    <div class="epilogue">${epilogue(s).map(t => `<p>${t}</p>`).join('')}</div>
-    <div class="best">${isBest ? '新的最佳成绩' : '历史最佳 ' + yuan(prev)}</div>
+    <div class="tiles">
+      <div><b>${(st.buys || 0) + (st.sells || 0)}</b>笔买卖</div>
+      <div><b>${st.delivered || 0}</b>张订单</div>
+      <div><b>${st.haggleWin || 0}</b>次砍价赢</div>
+      <div><b>${s.favor > 0 ? '+' : ''}${s.favor}</b>人情</div>
+    </div>
+    <div class="epilogue">${story.map(t => `<p>${t}</p>`).join('')}</div>
+    <h4 class="boardtitle">🏆 天梯</h4>
+    <div id="endboard">${boardHtml(null, 10)}</div>
+    <div class="best">${isBest ? '这是你的新纪录' : '我的历史最佳 ' + yuan(prev)}</div>
     <button class="primary" id="start">再来一局</button>
   </div>`;
+  // 把成绩交上去，再把天梯拉下来
+  submitScore(r.score, s.favor).then(res => fetchBoard().then(d => {
+    const box = $('#endboard');
+    if (!box) return;
+    box.innerHTML = boardHtml(res && res.error && (!d || d.error) ? res : d, 10);
+    if (res && res.error === 'slow_down') box.insertAdjacentHTML('beforeend', '<div class="boardmsg">这局提交得太快，没有计入天梯。</div>');
+  }));
   $('#screen').hidden = false;
   $('#start').onclick = startScreen;
 }

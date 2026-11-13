@@ -54,6 +54,7 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     loc: CONFIG.startLoc, market: null, forecast: null, rumor: null, over: false,
     favor: 0, flags: {}, seen: {}, pendingEvent: null,
     orders: [], offer: null, haggled: {}, talked: {},
+    stats: { buys: 0, sells: 0, delivered: 0, expired: 0, haggleWin: 0, caught: 0, peak: CONFIG.startCash }, // 结算时写总结用
     shady: null, // 今天的烧心货：{ good, state: 'offer' | 'open' | 'refused' }
     // 已接的订单、等你答复的订单、今天砍过价的档口
     // 剧情：人情值、剧情标记、已触发的场景
@@ -62,6 +63,9 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
   rollForecast(s);
   return s;
 }
+
+// 旧存档里没有 stats，用到的时候补上
+const stat = s => s.stats || (s.stats = { buys: 0, sells: 0, delivered: 0, expired: 0, haggleWin: 0, caught: 0, peak: s.cash });
 
 export const used = s => Object.values(s.inv).reduce((a, b) => a + b.qty, 0);
 export const free = s => s.capacity - used(s);
@@ -85,6 +89,7 @@ export function buy(s, id, qty) {
   s.cash -= cost;
   const it = s.inv[id] || (s.inv[id] = { qty: 0, cost: 0 });
   if (shadyOpen(s, id)) it.bad = badQty(s, id) + qty;
+  stat(s).buys++;
   it.qty += qty; it.cost += cost;
   return true;
 }
@@ -96,7 +101,8 @@ export function sell(s, id, qty) {
   // 烧心货先出手；有四成机会被当场退货：这部分钱收不到，货也没了，还丢人情
   const bad = Math.min(badQty(s, id), qty), caught = bad > 0 && rnd(s) < CONFIG.shadyCatch;
   s.cash += s.market[id] * (caught ? qty - bad : qty);
-  if (caught) s.favor -= 1;
+  if (caught) { s.favor -= 1; stat(s).caught++; }
+  stat(s).sells++; stat(s).peak = Math.max(stat(s).peak, s.cash);
   it.cost -= Math.round(it.cost * qty / it.qty);
   it.qty -= qty; it.bad = badQty(s, id) - bad;
   if (it.qty <= 0) delete s.inv[id];
@@ -173,6 +179,7 @@ export function deliver(s, i) {
   s.orders.splice(i, 1);
   s.cash += got;
   s.favor += bad ? -1 : 1;
+  stat(s).delivered++; stat(s).peak = Math.max(stat(s).peak, s.cash);
   return { got, bad };
 }
 
@@ -182,6 +189,7 @@ export function haggle(s, stallId, goodIds) {
   if (s.over || s.haggled[stallId] || !goodIds.some(id => s.market[id])) return null;
   const win = rnd(s) < haggleChance(s);
   for (const id of goodIds) if (s.market[id]) s.market[id] = Math.max(1, Math.round(s.market[id] * (win ? CONFIG.haggleWin : CONFIG.haggleLose)));
+  if (win) stat(s).haggleWin++;
   return (s.haggled[stallId] = win ? 'win' : 'lose');
 }
 
@@ -206,6 +214,7 @@ export function travel(s, to) {
   if (res.expired.length) { // 过期的订单作废，丢人情
     s.orders = s.orders.filter(o => o.deadline >= s.day);
     s.favor -= res.expired.length;
+    stat(s).expired += res.expired.length;
   }
   s.pendingEvent = rollEvent(s);
   s.offer = rollOffer(s);

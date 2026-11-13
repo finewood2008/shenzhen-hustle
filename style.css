@@ -318,3 +318,23 @@ body[data-side="left"] #stick { left: auto; right: 16px; }
 .points i { font-style: normal; font-size: 1.3em; text-align: center; }
 .points b { color: var(--text); }
 @media (max-width: 760px) { .points { display: none; } }
+
+/* ---------- 结算总结和天梯 ---------- */
+#screen .card.final { width: 520px; }
+.final .scorecard { display: flex; gap: 14px; align-items: center; }
+.final .scorecard .ava { width: 84px; flex: none; border-radius: 14px; overflow: hidden; line-height: 0; border: 3px solid rgba(255, 255, 255, .6); }
+.final .scorecard .ava svg { width: 100%; height: auto; display: block; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.tiles div { background: var(--card2); border-radius: 12px; padding: 8px 4px; text-align: center; font-size: .82em; color: var(--muted); }
+.tiles b { display: block; font-size: 1.5em; color: var(--text); font-variant-numeric: tabular-nums; }
+.boardtitle { margin: 14px 0 6px; font-size: 1em; }
+.board { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.board li { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 10px; background: var(--card2); font-variant-numeric: tabular-nums; }
+.board li b { text-align: center; color: var(--muted); }
+.board li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board li em { font-style: normal; font-weight: 700; }
+.board li.top1 b, .board li.top2 b, .board li.top3 b { color: var(--gold); font-size: 1.15em; }
+.board li.me { outline: 2px solid var(--accent); }
+.board li.gap { background: none; display: block; text-align: center; color: var(--muted); padding: 0; }
+.boardmsg { color: var(--muted); font-size: .9em; text-align: center; padding: 8px 0 2px; }
+@media (max-width: 760px) { .final .scorecard .ava { width: 64px; } .tiles b { font-size: 1.25em; } }
