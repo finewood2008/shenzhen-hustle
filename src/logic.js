@@ -51,6 +51,7 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     rng: seed | 0, day: 1, cash: CONFIG.startCash, debt: CONFIG.startDebt, bank: 0,
     health: 100, capacity: CONFIG.capacity, storageLevel: 0, inv: {},
     loc: CONFIG.startLoc, market: null, forecast: null, rumor: null, over: false,
+    favor: 0, flags: {}, seen: {}, // 剧情：人情值、剧情标记、已触发的场景
   };
   s.market = genMarket(s, s.loc, null);
   rollForecast(s);

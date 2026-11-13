@@ -3,6 +3,8 @@
 import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
+import { CAST, nextScene, play, epilogue } from './story.js';
+import { portrait } from './portraits.js';
 
 const $ = sel => document.querySelector(sel);
 const yuan = n => (n < 0 ? '-¥' : '¥') + Math.abs(Math.round(n)).toLocaleString('zh-CN');
@@ -12,10 +14,11 @@ const hex = c => '#' + c.toString(16).padStart(6, '0');
 
 let s = null, busy = false, log = [], toastTimer = 0;
 let mode = 'street', nearSpot = null, activeSpot = null;
+let scene = null; // 正在播放的剧情对话
 document.title = TITLE;
 for (const id of ['#panel', '#log', '#bar', '#travel', '#toast', '#modal-card']) $(id).classList.add('glass');
 
-const playing = () => s && !s.over && !busy;
+const playing = () => s && !s.over && !busy && !scene;
 const view = createScene($('#stage'), DISTRICTS, {
   onPick,
   street: {
@@ -115,11 +118,12 @@ function render() {
     stat('存款', yuan(s.bank)) +
     stat('欠款', yuan(s.debt), s.debt > 0 ? 'warn' : '') +
     stat('体力', s.health, s.health < 40 ? 'warn' : '', `<div class="bar"><i style="width:${s.health}%"></i></div>`) +
-    stat('背包', `${L.used(s)} / ${s.capacity}`);
+    stat('背包', `${L.used(s)} / ${s.capacity}`) +
+    stat('人情', (s.favor > 0 ? '+' : '') + s.favor, s.favor < 0 ? 'warn' : '');
 
   // 交易面板：只在街区里和某个档口/服务点互动时出现
   const panel = $('#panel');
-  if (mode === 'street' && activeSpot) {
+  if (mode === 'street' && activeSpot && !scene) {
     const sp = activeSpot;
     const body = sp.kind === 'stall'
       ? `<div class="rows">${sp.goods.map(id => goodRow(G[id])).join('')}</div>`
@@ -145,7 +149,9 @@ function render() {
   // 底部操作条
   const bar = $('#bar');
   let html = '';
-  if (mode === 'map') {
+  if (scene) {
+    html = '';
+  } else if (mode === 'map') {
     html = `<span>${last ? '最后一天，不能再换区了' : '选一个区前往，每次移动耗时 1 天'}</span><button data-bar="back">返回街区</button>`;
   } else if (!activeSpot) {
     if (nearSpot) {
@@ -203,7 +209,7 @@ $('#modal').addEventListener('pointerdown', e => { if (e.target.id === 'modal') 
 $('#modal-card').addEventListener('submit', e => {
   e.preventDefault();
   const fn = modalOk; closeModal();
-  if (fn) { fn(); render(); }
+  if (fn) { fn(); render(); checkStory(); }
 });
 window.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -211,6 +217,84 @@ window.addEventListener('keydown', e => {
   else if (activeSpot) { activeSpot = null; render(); }
   else if (mode === 'map' && playing()) backToStreet();
 });
+
+// ---------- 剧情对话 ----------
+const dlg = { root: $('#dialog'), portrait: $('#dialog .portrait'), who: $('#dialog .who'), text: $('#dialog .text'), choices: $('#dialog .choices'), more: $('#dialog .more') };
+// 有该触发的剧情就播，可能连着好几段；全部播完后调用 then
+function checkStory(then) {
+  const sc = s && !scene && nextScene(s);
+  if (!sc) { if (then) then(); return; }
+  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then: () => checkStory(then) };
+  activeSpot = null;
+  dlg.root.hidden = false;
+  render();
+  showLine();
+}
+function showLine() {
+  const cur = scene.p.current();
+  if (!cur) {
+    const then = scene.then;
+    clearInterval(scene.timer);
+    scene = null;
+    dlg.root.hidden = true;
+    render();
+    then();
+    return;
+  }
+  const c = CAST[cur.who];
+  const art = portrait(cur.who, cur.mood);
+  dlg.root.dataset.who = cur.who;
+  dlg.portrait.innerHTML = art;
+  dlg.portrait.hidden = !art;
+  dlg.who.innerHTML = c.name ? `${c.name}${c.title ? `<small>${c.title}</small>` : ''}` : '';
+  dlg.who.hidden = !c.name;
+  dlg.choices.innerHTML = '';
+  dlg.more.hidden = true;
+  scene.cur = cur; scene.full = cur.text; scene.shown = 0;
+  dlg.text.textContent = '';
+  clearInterval(scene.timer);
+  const t0 = performance.now(); // 按时间算字数，标签页被降频时也不会变慢
+  scene.timer = setInterval(() => {
+    scene.shown = Math.min(scene.full.length, Math.floor((performance.now() - t0) / 24) + 1);
+    dlg.text.textContent = scene.full.slice(0, scene.shown);
+    if (scene.shown >= scene.full.length) lineDone();
+  }, 26);
+}
+function lineDone() {
+  clearInterval(scene.timer);
+  scene.shown = scene.full.length;
+  dlg.text.textContent = scene.full;
+  const ch = scene.cur.choices;
+  if (ch) {
+    dlg.choices.innerHTML = ch.map((c, i) =>
+      `<button data-choice="${i}" ${c.ok ? '' : 'disabled'}><kbd>${i + 1}</kbd>${c.label}${c.ok || !c.why ? '' : `<small>${c.why}</small>`}</button>`).join('');
+  } else dlg.more.hidden = false;
+}
+function advance() {
+  if (!scene) return;
+  if (scene.shown < scene.full.length) lineDone();
+  else if (!scene.cur.choices) { scene.p.next(); showLine(); }
+}
+function choose(i) {
+  if (!scene || scene.shown < scene.full.length || !scene.cur.choices) return;
+  const result = scene.p.choose(i);
+  if (result === null) return;
+  if (result) { say(result, 'rumor'); toast(result, 3000); }
+  render();
+  showLine();
+}
+dlg.root.addEventListener('click', e => {
+  const b = e.target.closest('[data-choice]');
+  if (b) choose(Number(b.dataset.choice)); else advance();
+});
+// 对话时截住键盘，不让街区和面板收到
+window.addEventListener('keydown', e => {
+  if (!scene) return;
+  e.stopImmediatePropagation();
+  if (e.repeat) return;
+  if (e.key === ' ' || e.key === 'Enter' || e.key.toLowerCase() === 'e') { e.preventDefault(); advance(); }
+  else if (/^[1-9]$/.test(e.key)) choose(Number(e.key) - 1);
+}, true);
 
 // ---------- 面板与操作条 ----------
 $('#panel').addEventListener('click', e => {
@@ -317,6 +401,7 @@ function go(id) {
     enterStreet();
     render();
     toast(lines.join('<br>'), 4200);
+    checkStory();
   });
   render();
 }
@@ -332,6 +417,7 @@ function startScreen() {
     <div class="sub">一个行李箱，三十天，一座不睡觉的城市</div>
     <div class="intro">
       你揣着老乡会借的 ${yuan(CONFIG.startDebt)} 来到深圳，手里还剩 ${yuan(CONFIG.startCash)} 现金。<br>
+      · 路上会遇到人和事，怎么选，会影响别人怎么看你（人情）。<br>
       · 第一人称逛街：按住拖动转视角，WASD 走动，← → 转身；也可以直接点地面走过去。<br>
       · 靠近档口按 E（或直接点它）看货，低买高卖。<br>
       · 每个区的街都不一样，地标在街的东头。<br>
@@ -349,7 +435,8 @@ function startScreen() {
 
 function startGame() {
   s = L.newGame();
-  log = []; busy = false;
+  log = []; busy = false; scene = null;
+  $('#dialog').hidden = true;
   $('#screen').hidden = true;
   $('#travel').hidden = true;
   if (document.activeElement) document.activeElement.blur();
@@ -358,6 +445,7 @@ function startGame() {
   showRumor();
   enterStreet();
   render();
+  checkStory();
 }
 
 function endGame() {
@@ -374,6 +462,7 @@ function endGame() {
     <div class="score ${r.score < 0 ? 'neg' : ''}">${yuan(r.score)}</div>
     <div class="rank">${r.title}</div>
     <p style="color:#cbd5e1">${r.line}</p>
+    <div class="epilogue">${epilogue(s).map(t => `<p>${t}</p>`).join('')}</div>
     <p style="color:#94a3b8">${isBest ? '新的最佳成绩！' : '历史最佳：' + yuan(prev)}</p>
     <button class="primary" id="start">再来一局</button>
   </div>`;
@@ -382,4 +471,4 @@ function endGame() {
 }
 
 startScreen();
-window.__game = { peek(id, x, yaw) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x, yaw); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id }; } }; // 方便调试
+window.__game = { peek(id, x, yaw) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x, yaw); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id, scene: scene && scene.cur }; }, story: checkStory, go, end: endGame }; // 方便调试
