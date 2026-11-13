@@ -5,10 +5,13 @@
 //   { k: 'name' }                  给这句话起名，供 to 跳转
 //   { to: 'name' | s => 'name' }   说完这句跳到哪句（不写就接下一句）
 //   { end: true }                  说完这句结束
+//   { effect: s => '说明' }        没有选项的台词也可以带后果，说完这句时生效
 //   { choices: [{ label, ok?, why?, effect?, to? }] }  选项。effect(s) 修改状态并返回结果说明
 // text 可以是 s => string。
 
-import { CONFIG } from './content.js';
+import { CONFIG, GOODS, DISTRICTS } from './content.js';
+
+const GOOD = Object.fromEntries(GOODS.map(g => [g.id, g]));
 
 const yuan = n => '¥' + Math.round(n).toLocaleString('zh-CN');
 const favor = (s, n) => { s.favor += n; return `人情 ${n > 0 ? '+' : ''}${n}`; };
@@ -21,12 +24,22 @@ function give(s, id, qty) {
   return n;
 }
 
+const hp = (s, n) => { s.health = Math.min(100, s.health + n); return `体力 ${n > 0 ? '+' : ''}${n}`; };
+// 扣现金，最多扣到 0（事件是到站时抽的，中间的剧情可能已经把钱花掉了）
+const pay = (s, n) => { n = Math.min(n, s.cash); s.cash -= n; return `现金 -${yuan(n)}`; };
+const unloadPay = s => 300 + (s.day % 4) * 100;
+const bigItem = s => Object.keys(s.inv).sort((a, b) => s.inv[b].qty - s.inv[a].qty)[0];
+
 export const CAST = {
   me: { name: '你' },
   narr: { name: '' },
   bing: { name: '炳叔', title: '老乡会会长' },
   jie: { name: '阿杰', title: '刚到深圳的老乡' },
   biao: { name: '阿彪', title: '替人收账的' },
+  boss: { name: '档口老板' },
+  landlord: { name: '房东阿姨' },
+  auntie: { name: '肠粉摊阿姨' },
+  officer: { name: '市场协管' },
 };
 
 export const SCENES = [
@@ -152,15 +165,102 @@ export const SCENES = [
   },
 ];
 
-// 找出现在该触发的场景（每个场景一局只触发一次）
+// 随机事件：换区时按权重 w 抽一个，can(s) 为假的不参与。可以重复发生。
+export const EVENT_SCENES = [
+  { id: 'ev_typhoon', w: 3, lines: [
+    { who: 'narr', text: '台风的尾巴扫过来，雨大得看不清马路对面。你怀里还抱着货。', choices: [
+      { label: '抱着货蹚水走过去', effect: s => hp(s, -15) },
+      { label: '咬牙打个车（¥80）', ok: s => s.cash >= 80, why: '现金不足 ¥80', effect: s => { s.cash -= 80; return '现金 -¥80 · ' + hp(s, -3); } },
+    ] },
+    { who: 'narr', text: '到地方的时候，鞋里能倒出半杯水。' },
+  ] },
+  { id: 'ev_thief', w: 2, can: s => s.cash >= 200, lines: [
+    { who: 'narr', text: '晚高峰的地铁挤得人贴人。出站一摸，裤兜被划开了一道口子。',
+      effect: s => { const n = Math.floor(s.cash * 0.1); s.cash -= n; return `现金 -${yuan(n)}`; } },
+  ] },
+  { id: 'ev_noodle', w: 3, lines: [
+    { who: 'auntie', mood: 'smile', text: '后生，看你脸都白了。坐下，阿姨给你拉一碟肠粉，再来碗糖水。' },
+    { who: 'auntie', text: '出来闯，钱要赚，饭也要吃。这碟算阿姨的。', effect: s => hp(s, 12) },
+  ] },
+  { id: 'ev_unload', w: 3, lines: [
+    { who: 'boss', text: s => `靓仔！我这来了一车货，伙计又请假。搭把手卸一下，给你 ${yuan(unloadPay(s))}。`, choices: [
+      { label: '“行，我来。”', effect: s => { const n = unloadPay(s); s.cash += n; return `现金 +${yuan(n)} · ` + hp(s, -4); }, to: 'yes' },
+      { label: '“赶时间，下次吧。”', to: 'no' },
+    ] },
+    { k: 'yes', who: 'boss', mood: 'smile', text: '手脚够快。以后缺人我还找你。', end: true },
+    { k: 'no', who: 'boss', text: '行吧行吧，我自己来。', end: true },
+  ] },
+  { id: 'ev_rent', w: 2, can: s => s.cash >= 300, lines: [
+    { who: 'landlord', text: '哎，正找你呢。下个月起每间涨三百，差价先补一下。', choices: [
+      { label: '掏钱补上（¥300）', effect: s => pay(s, 300), to: 'pay' },
+      { label: '“阿姨，我才来几天，通融一下？”', to: s => (s.favor >= 1 ? 'soft' : 'hard') },
+    ] },
+    { k: 'pay', who: 'landlord', mood: 'smile', text: '爽快。楼顶可以晒被子，钥匙在我这。', end: true },
+    { k: 'soft', who: 'landlord', text: '……听炳叔讲过你，说人还实在。行，先收你一半。', effect: s => pay(s, 150), end: true },
+    { k: 'hard', who: 'landlord', mood: 'angry', text: '个个都叫我通融，我找谁通融去？三百，一分不少。', effect: s => pay(s, 300), end: true },
+  ] },
+  { id: 'ev_check', w: 2, can: s => Object.keys(s.inv).length > 0, lines: [
+    { who: 'officer', text: '市场抽检。你这批货的进货票据，拿出来看一下。' },
+    { who: 'me', text: '票据……老板说回头补给我。' },
+    { who: 'officer', text: s => `没有票据的，${GOOD[bigItem(s)].name}先暂扣一部分，补了票再来领。`,
+      effect: s => {
+        const id = bigItem(s), it = s.inv[id], n = Math.max(1, Math.floor(it.qty * 0.3));
+        it.cost -= Math.round(it.cost * n / it.qty); it.qty -= n;
+        if (it.qty <= 0) delete s.inv[id];
+        return `${GOOD[id].name} -${n}`;
+      } },
+  ] },
+  { id: 'ev_sample', w: 2, can: s => free(s) >= 3, lines: [
+    { who: 'narr', text: '路过会展中心，一个参展商正往纸箱里收样品。' },
+    { who: 'narr', text: '“带不回去了，你要就拿走。”他把一袋东西塞到你手里。',
+      effect: s => { const id = ['led', 'powerbank', 'earbuds'][s.day % 3]; return `${GOOD[id].name} +${give(s, id, 3 + (s.day % 5))}`; } },
+  ] },
+  { id: 'ev_ebike', w: 2, can: s => s.cash >= 200, lines: [
+    { who: 'officer', mood: 'angry', text: '电单车不能进这条路，牌子那么大没看见？罚款两百，车先扣下。',
+      effect: s => pay(s, 200) + ' · ' + hp(s, -5) },
+    { who: 'narr', text: '剩下的路，你扛着货走完了。' },
+  ] },
+  { id: 'ev_hill', w: 2, lines: [
+    { who: 'narr', text: '天还没亮透，你跟着晨练的阿伯阿婆爬了趟莲花山。山顶的风一吹，整个人都松了。', effect: s => hp(s, 8) },
+  ] },
+  { id: 'ev_night', w: 2, lines: [
+    { who: 'boss', text: '今晚有一批货要通宵打包发走，四百块，干不干？', choices: [
+      { label: '“干。”', effect: s => { s.cash += 400; return '现金 +¥400 · ' + hp(s, -10); }, to: 'yes' },
+      { label: '“我得睡觉。”', to: 'no' },
+    ] },
+    { k: 'yes', who: 'narr', text: '天亮的时候，你靠着纸箱堆睡着了，手里还攥着封箱胶带。', end: true },
+    { k: 'no', who: 'boss', text: '也是，身体要紧。', end: true },
+  ] },
+];
+for (const e of EVENT_SCENES) e.event = true;
+
+// 有人找你下订单时的对话（订单内容在 s.offer 里，由 logic.js 生成）
+const OFFER_SCENE = {
+  id: 'offer', offer: true,
+  lines: [
+    { who: 'boss', text: s => {
+        const o = s.offer, name = DISTRICTS.find(d => d.id === o.to).name;
+        return `靓仔，有个老客要 ${o.qty} 件${GOOD[o.good].name}，${name}那边收，最晚第 ${o.deadline} 天送到。每件给 ${yuan(o.pay)}，一共 ${yuan(o.pay * o.qty)}。接不接？`;
+      }, choices: [
+      { label: '“接。”', effect: s => { const o = s.offer; s.orders.push(o); s.offer = null; return `接下订单：${GOOD[o.good].name} ×${o.qty}`; }, to: 'yes' },
+      { label: '“这单接不了。”', effect: s => { s.offer = null; return ''; }, to: 'no' },
+    ] },
+    { k: 'yes', who: 'boss', mood: 'smile', text: '爽快！货带到了那边，自然有人找你收。别误了日子，误了大家都难做。', end: true },
+    { k: 'no', who: 'boss', text: '行，那我问问别人。', end: true },
+  ],
+};
+
+// 找出现在该触发的场景：先是主线（每个一局只触发一次），再是这次换区抽到的随机事件
 export function nextScene(s) {
   if (s.over) return null;
-  return SCENES.find(sc => !s.seen[sc.id] && sc.when(s)) || null;
+  return SCENES.find(sc => !s.seen[sc.id] && sc.when(s))
+    || (s.pendingEvent && EVENT_SCENES.find(e => e.id === s.pendingEvent))
+    || (s.offer ? OFFER_SCENE : null);
 }
 
 // 逐步播放一个场景。界面层调用 current() 显示，next() / choose(i) 推进。
 export function play(s, scene) {
-  s.seen[scene.id] = true;
+  if (scene.event) s.pendingEvent = null; else if (!scene.offer) s.seen[scene.id] = true;
   const lines = scene.lines;
   let i = 0, done = false;
   const jump = (line, choice) => {
@@ -184,7 +284,14 @@ export function play(s, scene) {
         choices: l.choices ? l.choices.map(c => ({ label: c.label, ok: !c.ok || c.ok(s), why: c.why || '' })) : null,
       };
     },
-    next() { const l = lines[i]; if (done || l.choices) return false; jump(l); return true; },
+    // 返回这句台词的后果说明（没有就是空字符串）；不能前进时返回 false
+    next() {
+      const l = lines[i];
+      if (done || l.choices) return false;
+      const result = (l.effect && l.effect(s)) || '';
+      jump(l);
+      return result;
+    },
     choose(n) {
       const l = lines[i], c = l.choices && l.choices[n];
       if (done || !c || (c.ok && !c.ok(s))) return null;

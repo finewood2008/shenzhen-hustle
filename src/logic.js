@@ -1,5 +1,6 @@
 // 纯玩法逻辑，不依赖任何渲染或 DOM，可以在 Node 里直接跑。
-import { CONFIG, DISTRICTS, GOODS, EVENTS, RANKS } from './content.js';
+import { CONFIG, DISTRICTS, GOODS, RANKS } from './content.js';
+import { EVENT_SCENES } from './story.js';
 
 const GOOD = Object.fromEntries(GOODS.map(g => [g.id, g]));
 
@@ -51,7 +52,9 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     rng: seed | 0, day: 1, cash: CONFIG.startCash, debt: CONFIG.startDebt, bank: 0,
     health: 100, capacity: CONFIG.capacity, storageLevel: 0, inv: {},
     loc: CONFIG.startLoc, market: null, forecast: null, rumor: null, over: false,
-    favor: 0, flags: {}, seen: {}, // 剧情：人情值、剧情标记、已触发的场景
+    favor: 0, flags: {}, seen: {}, pendingEvent: null,
+    orders: [], offer: null, haggled: {}, // 已接的订单、等你答复的订单、今天砍过价的档口
+    // 剧情：人情值、剧情标记、已触发的场景
   };
   s.market = genMarket(s, s.loc, null);
   rollForecast(s);
@@ -119,14 +122,62 @@ export function expandStorage(s) {
   s.cash -= cost; s.capacity += CONFIG.storageStep; s.storageLevel++; return true;
 }
 
+// 抽一个随机事件，返回它的 id；事件本身是一段对话，由界面层播放（见 story.js）
 function rollEvent(s) {
   if (rnd(s) >= CONFIG.eventChance) return null;
-  const total = EVENTS.reduce((a, e) => a + e.w, 0);
-  let x = rnd(s) * total;
-  const ev = EVENTS.find(e => (x -= e.w) < 0) || EVENTS[0];
-  const out = ev.apply(s, helpers(s));
-  if (!out) return null;
-  return typeof out === 'string' ? { text: out } : out;
+  const pool = EVENT_SCENES.filter(e => !e.can || e.can(s));
+  let x = rnd(s) * pool.reduce((a, e) => a + e.w, 0);
+  return (pool.find(e => (x -= e.w) < 0) || pool[0]).id;
+}
+
+// 有人找上门下订单：要多少件什么货，几号之前送到哪个区，每件给多少钱
+function rollOffer(s) {
+  if (rnd(s) >= CONFIG.orderChance || s.orders.length >= CONFIG.orderMax || s.day > CONFIG.days - 3) return null;
+  const r = helpers(s), g = r.pick(GOODS), mid = (g.min + g.max) / 2;
+  const others = DISTRICTS.filter(d => d.id !== s.loc);
+  const to = g.demand !== s.loc && rnd(s) < 0.6 ? g.demand : r.pick(others).id;
+  return {
+    good: g.id, to,
+    qty: Math.max(2, Math.min(30, Math.round((2500 + s.day * 500) / mid))),
+    pay: Math.round(mid * CONFIG.orderPremium),
+    deadline: Math.min(CONFIG.days, s.day + r.int(3, 5)),
+  };
+}
+export function acceptOffer(s) {
+  if (!s.offer || s.orders.length >= CONFIG.orderMax) return false;
+  s.orders.push(s.offer); s.offer = null;
+  return true;
+}
+export const canDeliver = (s, o) => s.loc === o.to && !!s.inv[o.good] && s.inv[o.good].qty >= o.qty;
+// 交货：人在目的地、货够数就行。返回收到的钱
+export function deliver(s, i) {
+  const o = s.orders[i];
+  if (s.over || !o || !canDeliver(s, o)) return 0;
+  const it = s.inv[o.good];
+  it.cost -= Math.round(it.cost * o.qty / it.qty);
+  it.qty -= o.qty;
+  if (it.qty <= 0) delete s.inv[o.good];
+  s.orders.splice(i, 1);
+  s.cash += o.qty * o.pay;
+  s.favor += 1;
+  return o.qty * o.pay;
+}
+
+// 砍价：每个档口每天一次。成功则这个档口今天的价格全线下调，失败则上调。返回 'win' | 'lose' | null
+export const haggleChance = s => Math.max(0.15, Math.min(0.8, CONFIG.haggleBase + s.favor * CONFIG.haggleFavor));
+export function haggle(s, stallId, goodIds) {
+  if (s.over || s.haggled[stallId] || !goodIds.some(id => s.market[id])) return null;
+  const win = rnd(s) < haggleChance(s);
+  for (const id of goodIds) if (s.market[id]) s.market[id] = Math.max(1, Math.round(s.market[id] * (win ? CONFIG.haggleWin : CONFIG.haggleLose)));
+  return (s.haggled[stallId] = win ? 'win' : 'lose');
+}
+
+// 追加借款：只能在老乡会，额度看人情
+export const borrowLimit = s => Math.max(0, CONFIG.borrowBase + s.favor * CONFIG.borrowFavor - s.debt);
+export function borrow(s, n) {
+  n = Math.floor(n);
+  if (s.over || !here(s, 'debt') || !(n > 0) || n > borrowLimit(s)) return false;
+  s.cash += n; s.debt += n; return true;
 }
 
 // 前往另一个区：过一天、计息、换行情、可能触发事件
@@ -137,15 +188,25 @@ export function travel(s, to) {
   s.bank = Math.floor(s.bank * (1 + CONFIG.bankRate));
   s.loc = to;
   s.market = s.forecast[to];
-  const res = { rumorHit: s.rumor.district === to ? s.rumor : null, event: rollEvent(s), collapsed: null };
-  if (s.health <= 0) { // 累倒：住院两天，花掉两成现金
-    const fee = Math.floor(s.cash * 0.2);
-    s.cash -= fee; s.health = 50;
-    s.day = Math.min(CONFIG.days, s.day + 2);
-    res.collapsed = { fee };
+  s.haggled = {};
+  const res = { rumorHit: s.rumor.district === to ? s.rumor : null, expired: s.orders.filter(o => o.deadline < s.day) };
+  if (res.expired.length) { // 过期的订单作废，丢人情
+    s.orders = s.orders.filter(o => o.deadline >= s.day);
+    s.favor -= res.expired.length;
   }
+  s.pendingEvent = rollEvent(s);
+  s.offer = rollOffer(s);
   rollForecast(s);
   return res;
+}
+
+// 体力耗尽就累倒：住院两天，花掉两成现金。剧情和事件播完后调用。
+export function checkCollapse(s) {
+  if (s.health > 0) return null;
+  const fee = Math.floor(s.cash * 0.2);
+  s.cash -= fee; s.health = 50;
+  s.day = Math.min(CONFIG.days, s.day + 2);
+  return { fee };
 }
 
 export function settle(s) {

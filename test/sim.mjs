@@ -1,10 +1,11 @@
 // 用一个简单的贪心机器人跑很多局，检查逻辑不出错并观察数值分布。
 import assert from 'node:assert';
 import * as L from '../src/logic.js';
-import { GOODS, DISTRICTS, CONFIG } from '../src/content.js';
-import { SCENES, CAST, nextScene, play, epilogue } from '../src/story.js';
+import { GOODS, DISTRICTS, CONFIG, STALLS } from '../src/content.js';
+import { SCENES, EVENT_SCENES, CAST, nextScene, play, epilogue } from '../src/story.js';
 
 const seenScenes = new Set();
+const tally = { delivered: 0, expired: 0, haggleWin: 0, haggleLose: 0, borrowed: 0 };
 // 把当前该触发的剧情都走完，选项按种子轮流选
 function runStory(s, seed) {
   let sc, n = 0;
@@ -22,7 +23,7 @@ function runStory(s, seed) {
         const ok = cur.choices.map((c, i) => (c.ok ? i : -1)).filter(i => i >= 0);
         assert(ok.length, 'at least one choice must be available: ' + sc.id);
         assert(p.choose(ok[(seed + s.day + steps) % ok.length]) !== null);
-      } else assert(p.next());
+      } else assert(p.next() !== false);
     }
   }
 }
@@ -38,7 +39,22 @@ for (let seed = 1; seed <= 500; seed++) {
       const it = s.inv[id];
       if (s.market[id] && s.market[id] > it.cost / it.qty) assert(L.sell(s, id, it.qty));
     }
-    if (s.loc === 'luohu' && s.debt > 0) L.repay(s, Math.min(s.cash, s.debt));
+    // 交货：货不够就先在这里补
+    for (let i = s.orders.length - 1; i >= 0; i--) {
+      const o = s.orders[i];
+      if (s.loc !== o.to) continue;
+      const need = o.qty - (s.inv[o.good] ? s.inv[o.good].qty : 0);
+      if (need > 0 && s.market[o.good] && L.maxBuy(s, o.good) >= need) L.buy(s, o.good, need);
+      if (L.canDeliver(s, o)) { const cash = s.cash; assert(L.deliver(s, i) > 0 && s.cash > cash); tally.delivered++; }
+    }
+    // 砍价：每个档口试一次，第二次必须被拒绝
+    if (seed % 2) for (const st of STALLS) {
+      const res = L.haggle(s, st.id, st.goods);
+      if (res) { tally[res === 'win' ? 'haggleWin' : 'haggleLose']++; assert.equal(L.haggle(s, st.id, st.goods), null); }
+    }
+    if (s.loc === 'luohu' && seed % 5 === 0 && s.day < 10 && L.borrowLimit(s) >= 2000) { assert(L.borrow(s, 2000)); tally.borrowed++; }
+    assert(!L.borrow(s, 1e9), 'cannot borrow past the limit');
+    if (s.loc === 'luohu' && s.debt > 0 && s.day >= 10) L.repay(s, Math.min(s.cash, s.debt));
     let best = null;
     for (const g of GOODS) {
       const p = s.market[g.id];
@@ -51,7 +67,10 @@ for (let seed = 1; seed <= 500; seed++) {
     const others = DISTRICTS.filter(d => d.id !== s.loc);
     const res = L.travel(s, others[(seed + s.day) % others.length].id);
     assert(res, 'travel should succeed');
+    tally.expired += res.expired.length;
+    assert(s.orders.length <= CONFIG.orderMax && s.orders.every(o => o.deadline >= s.day));
     runStory(s, seed);
+    L.checkCollapse(s);
     for (const k of ['cash', 'debt', 'bank', 'health', 'day']) assert(Number.isFinite(s[k]), k);
     assert(s.cash >= 0 && s.debt >= 0 && s.health > 0 && L.used(s) <= s.capacity);
     assert(s.day <= CONFIG.days);
@@ -68,6 +87,7 @@ assert.deepEqual(L.newGame(42), L.newGame(42));
 
 scores.sort((a, b) => a - b);
 const q = p => Math.round(scores[Math.floor(p * (scores.length - 1))]);
-assert.equal(seenScenes.size, SCENES.length, 'every scene should be reachable: ' + [...seenScenes]);
-console.log('ok', scores.length, 'games');
+assert(tally.delivered > 20 && tally.expired > 20 && tally.haggleWin > 20 && tally.haggleLose > 20 && tally.borrowed > 5, JSON.stringify(tally));
+assert.equal(seenScenes.size, SCENES.length + EVENT_SCENES.length + 1, 'every scene should be reachable: ' + [...seenScenes]);
+console.log('ok', scores.length, 'games', tally);
 console.log({ min: q(0), p25: q(0.25), median: q(0.5), p75: q(0.75), max: q(1) });

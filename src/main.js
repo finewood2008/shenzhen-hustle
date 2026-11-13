@@ -1,6 +1,6 @@
 // 界面层：把逻辑状态画到 HUD / 面板上，并把玩家操作转给逻辑层和 3D 场景。
 // 两个模式：'street' 在街区里走动、靠近档口交易；'map' 在城市沙盘上选下一个区。
-import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES } from './content.js';
+import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
 import { CAST, nextScene, play, epilogue } from './story.js';
@@ -97,8 +97,10 @@ function serviceHtml(kind) {
   if (kind === 'bank') return `<p>存款日息 ${CONFIG.bankRate * 100}%，现金放这里不怕丢。</p>
     <div class="service"><button data-act="deposit" ${s.cash > 0 ? '' : 'disabled'}>存款</button>
     <button data-act="withdraw" ${s.bank > 0 ? '' : 'disabled'}>取款</button></div>`;
-  if (kind === 'debt') return `<p>欠款 ${yuan(s.debt)}，日息 ${CONFIG.debtRate * 100}%。早还早轻松。</p>
-    <div class="service"><button data-act="repay" ${s.debt > 0 && s.cash > 0 ? '' : 'disabled'}>还钱</button></div>`;
+  if (kind === 'debt') return `<p>欠款 ${yuan(s.debt)}，日息 ${CONFIG.debtRate * 100}%。早还早轻松。
+    还能再借 ${yuan(L.borrowLimit(s))}，额度看你的人情。</p>
+    <div class="service"><button data-act="repay" ${s.debt > 0 && s.cash > 0 ? '' : 'disabled'}>还钱</button>
+    <button data-act="borrow" ${L.borrowLimit(s) >= 100 ? '' : 'disabled'}>再借一点</button></div>`;
   if (kind === 'clinic') return `<p>当前体力 ${s.health}。每点体力 ${yuan(CONFIG.clinicCost)}。</p>
     <div class="service"><button data-act="heal" ${s.health < 100 && s.cash >= CONFIG.clinicCost ? '' : 'disabled'}>看病</button></div>`;
   const full = s.capacity >= CONFIG.storageMax;
@@ -125,6 +127,13 @@ function render() {
   const panel = $('#panel');
   if (mode === 'street' && activeSpot && !scene) {
     const sp = activeSpot;
+    let haggleHtml = '';
+    if (sp.kind === 'stall') {
+      const h = s.haggled[sp.id], open = sp.goods.some(id => s.market[id]);
+      haggleHtml = h
+        ? `<span class="haggled ${h}">${h === 'win' ? '砍价成功，今天这里便宜 12%' : '砍价失败，今天这里贵了 6%'}</span>`
+        : `<button data-act="haggle" ${open ? '' : 'disabled'}>砍价（${Math.round(L.haggleChance(s) * 100)}% 成）</button>`;
+    }
     const body = sp.kind === 'stall'
       ? `<div class="rows">${sp.goods.map(id => goodRow(G[id])).join('')}</div>`
       : `<div class="rows"><div class="empty">${serviceHtml(sp.service)}</div></div>`;
@@ -132,7 +141,8 @@ function render() {
       <div class="head">
         <button class="close" data-act="close" aria-label="关闭">×</button>
         <h2><i style="background:${hex(sp.color || d.color)}"></i>${sp.icon} ${d.name} · ${sp.name}</h2>
-        <p class="desc">${sp.kind === 'stall' ? '今天的行情。别处的价格，要走过去才知道。' : d.desc}</p>
+        <p class="desc">${sp.kind === 'stall' ? `“${GREETINGS[sp.id][(s.day + DISTRICTS.indexOf(d)) % GREETINGS[sp.id].length]}”` : d.desc}</p>
+        ${haggleHtml ? `<div class="haggle">${haggleHtml}</div>` : ''}
       </div>
       ${body}
       <div class="foot">
@@ -162,6 +172,22 @@ function render() {
   }
   bar.innerHTML = html;
   bar.hidden = !html;
+
+  // 订单清单
+  $('#orders').innerHTML = s.orders.map((o, i) => {
+    const have = s.inv[o.good] ? s.inv[o.good].qty : 0, left = o.deadline - s.day;
+    const here = s.loc === o.to, ready = L.canDeliver(s, o);
+    return `<div class="order glass ${left <= 1 ? 'urgent' : ''}">
+      <b>${G[o.good].icon} ${G[o.good].name} ×${o.qty}</b> → ${D[o.to].name}
+      <small>${left <= 0 ? '今天截止' : `还剩 ${left} 天`} · 货 ${Math.min(have, o.qty)}/${o.qty} · 报酬 ${yuan(o.qty * o.pay)}</small>
+      ${here ? `<button class="primary" data-deliver="${i}" ${ready && !scene ? '' : 'disabled'}>${ready ? '交货' : '货不够'}</button>` : ''}
+    </div>`;
+  }).join('');
+
+  // 视角切换按钮：只在街区里、没有对话和面板时出现
+  const vb = $('#viewbtn');
+  vb.hidden = mode !== 'street' || !!scene || s.over || !$('#screen').hidden;
+  vb.innerHTML = view.streetView === 'fp' ? '<kbd>V</kbd>切到俯视' : '<kbd>V</kbd>切到第一人称';
 
   $('#log').innerHTML = log.slice(-6).map(l => `<p class="${l.cls || ''}">${l.text}</p>`).join('');
 }
@@ -273,7 +299,11 @@ function lineDone() {
 function advance() {
   if (!scene) return;
   if (scene.shown < scene.full.length) lineDone();
-  else if (!scene.cur.choices) { scene.p.next(); showLine(); }
+  else if (!scene.cur.choices) {
+    const result = scene.p.next();
+    if (result) { say(result, 'rumor'); toast(result, 3000); render(); }
+    showLine();
+  }
 }
 function choose(i) {
   if (!scene || scene.shown < scene.full.length || !scene.cur.choices) return;
@@ -325,6 +355,19 @@ $('#panel').addEventListener('click', e => {
     askAmount({ title: '还钱给老乡会', hint: `欠款 ${yuan(s.debt)}，现金 ${yuan(s.cash)}`, max: Math.min(s.cash, s.debt),
       total: n => `还款 ${yuan(n)}，还剩 ${yuan(s.debt - n)}`,
       onOk: n => { if (L.repay(s, n)) say(s.debt === 0 ? '欠款还清了，一身轻松。' : `还了 ${yuan(n)}，还欠 ${yuan(s.debt)}`); } });
+  } else if (act === 'borrow') {
+    const max = L.borrowLimit(s);
+    askAmount({ title: '向老乡会再借一点', hint: `最多还能借 ${yuan(max)}，日息 ${CONFIG.debtRate * 100}%`, max,
+      total: n => `借 ${yuan(n)}，欠款变成 ${yuan(s.debt + n)}`,
+      onOk: n => { if (L.borrow(s, n)) say(`又向老乡会借了 ${yuan(n)}，现在欠 ${yuan(s.debt)}`); } });
+  } else if (act === 'haggle') {
+    const res = L.haggle(s, activeSpot.id, activeSpot.goods);
+    if (res) {
+      const t = res === 'win' ? '“行行行，算你会讲。今天给你这个价。”' : '“不诚心买就别乱还价。今天就这个价，爱要不要。”';
+      say(res === 'win' ? '砍价成功，这个档口今天便宜 12%。' : '砍价失败，这个档口今天贵了 6%。');
+      toast(t, 3200);
+    }
+    render();
   } else if (act === 'heal') {
     const max = Math.min(100 - s.health, Math.floor(s.cash / CONFIG.clinicCost));
     askAmount({ title: '社康看病', hint: `当前体力 ${s.health}`, max, total: n => `恢复 ${n} 点，花费 ${yuan(n * CONFIG.clinicCost)}`,
@@ -347,6 +390,27 @@ $('#bar').addEventListener('click', e => {
   if (act === 'interact' && nearSpot) interact(nearSpot);
   else if (act === 'back') backToStreet();
   else if (act === 'settle') endGame();
+});
+
+function toggleView() {
+  if (!playing() || mode !== 'street') return;
+  view.setStreetView(view.streetView === 'fp' ? 'iso' : 'fp');
+  render();
+}
+$('#viewbtn').addEventListener('click', e => { e.currentTarget.blur(); toggleView(); });
+window.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'v' && e.target.tagName !== 'INPUT' && !e.metaKey && !e.ctrlKey && $('#modal').hidden) toggleView();
+});
+
+$('#orders').addEventListener('click', e => {
+  const b = e.target.closest('[data-deliver]');
+  if (!b || !playing()) return;
+  const o = s.orders[Number(b.dataset.deliver)];
+  const got = L.deliver(s, Number(b.dataset.deliver));
+  if (!got) return;
+  const t = `交货：${G[o.good].name} ×${o.qty}，收到 ${yuan(got)} · 人情 +1`;
+  say(t, 'rumor'); toast(t, 3600);
+  render();
 });
 
 // ---------- 地图上换区 ----------
@@ -384,24 +448,22 @@ function go(id) {
       const t = `消息是真的：${G[res.rumorHit.good].name}${res.rumorHit.up ? '价格飞涨！' : '跌到了地板价！'}`;
       lines.push(t); say(t, 'rumor');
     }
-    if (res.event) {
-      let t = res.event.text;
-      if (res.event.lost) t += `${G[res.event.lost.id].name} -${res.event.lost.qty}`;
-      if (res.event.gained) t += `${G[res.event.gained.id].name} +${res.event.gained.qty}`;
+    if (s.health < 40) lines.push('体力快撑不住了，去龙华的社康看看吧。');
+    for (const o of res.expired) {
+      const t = `订单过期：${G[o.good].name} ×${o.qty} 没送到${D[o.to].name}。人情 -1`;
       lines.push(t); say(t);
-    }
-    if (res.collapsed) {
-      const t = `你累倒在路边，被送进医院躺了两天，花了 ${yuan(res.collapsed.fee)}。`;
-      lines.push(t); say(t);
-    } else if (s.health < 40) {
-      lines.push('体力快撑不住了，去龙华的社康看看吧。');
     }
     if (L.isLastDay(s)) lines.push('今天是最后一天。');
     showRumor();
     enterStreet();
     render();
     toast(lines.join('<br>'), 4200);
-    checkStory();
+    checkStory(() => { // 对话都播完后，再看有没有累倒
+      const c = L.checkCollapse(s);
+      if (!c) return;
+      const t = `你累倒在路边，被送进医院躺了两天，花了 ${yuan(c.fee)}。`;
+      say(t); toast(t, 4200); render();
+    });
   });
   render();
 }
@@ -418,10 +480,12 @@ function startScreen() {
     <div class="intro">
       你揣着老乡会借的 ${yuan(CONFIG.startDebt)} 来到深圳，手里还剩 ${yuan(CONFIG.startCash)} 现金。<br>
       · 路上会遇到人和事，怎么选，会影响别人怎么看你（人情）。<br>
-      · 第一人称逛街：按住拖动转视角，WASD 走动，← → 转身；也可以直接点地面走过去。<br>
+      · 点地面走过去，或用 WASD 走动；按住拖动转镜头，滚轮缩放。<br>
+      · 按 V 或右下角的按钮，可以在斜俯视和第一人称之间切换。<br>
       · 靠近档口按 E（或直接点它）看货，低买高卖。<br>
-      · 每个区的街都不一样，地标在街的东头。<br>
+      · 每个区的街都不一样；镜头转到哪一侧，那一侧的高楼会自动剖开。<br>
       · 去地铁站打开地图换区，每换一次过一天。<br>
+      · 有人会找你下订单：按时把货送到指定的区，价钱比市面高。档口每天还能砍一次价。<br>
       · 欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖口岸的老乡会才能还。<br>
       · 地图上飘着小道消息：红色是要涨，绿色是要跌。<br>
       · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。
@@ -457,6 +521,7 @@ function endGame() {
   activeSpot = null;
   $('#panel').hidden = true;
   $('#bar').hidden = true;
+  $('#viewbtn').hidden = true;
   $('#screen').innerHTML = `<div class="card glass">
     <div class="sub">三十天过去了</div>
     <div class="score ${r.score < 0 ? 'neg' : ''}">${yuan(r.score)}</div>

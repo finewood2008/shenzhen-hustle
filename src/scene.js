@@ -283,6 +283,8 @@ export function createScene(container, districts, handlers) {
       street.setActive(m === 'street');
       el.style.cursor = 'grab';
     },
+    get streetView() { return street.view; },
+    setStreetView(v) { street.setView(v); },
     enterStreet(district, idx, spots, startX, startYaw) { street.enter(district, idx, spots, startX, startYaw); this.setMode('street'); },
     // rumor: { district, text, up } 或 null
     setRumor(rumor) {

@@ -14,6 +14,15 @@ export const CONFIG = {
   storageCost: 4000, // 第 n 次扩容花费 = storageCost * n
   clinicCost: 60,    // 每点体力的花费
   eventChance: 0.4,
+  orderChance: 0.45, // 每次到站被人找上门下订单的概率
+  orderMax: 2,       // 同时最多接几单
+  orderPremium: 1.45, // 订单单价 = 这种货的中间价 × 这个倍数
+  haggleBase: 0.35,  // 砍价的基础成功率，每点人情再加 haggleFavor
+  haggleFavor: 0.07,
+  haggleWin: 0.88,   // 砍价成功 / 失败后，这个档口今天的价格倍数
+  haggleLose: 1.06,
+  borrowBase: 10000, // 老乡会的借款额度 = borrowBase + 人情 × borrowFavor，减去已欠的
+  borrowFavor: 3000,
   startLoc: 'luohu',
 };
 
@@ -72,38 +81,7 @@ export const GOODS = [
   { id: 'drone', name: '无人机配件', icon: '🚁', min: 3000, max: 12000, origin: 'keji', demand: 'yantian' },
 ];
 
-// apply(s, r) 返回事件文案；返回 null 表示这次不触发。
-// r: { rand(), int(a, b), pick(arr) }
-export const EVENTS = [
-  { w: 3, apply(s, r) { s.health -= 15; return '台风过境，你抱着货在雨里蹚了两条街。体力 -15'; } },
-  { w: 2, apply(s, r) {
-      if (s.cash < 200) return null;
-      const n = Math.floor(s.cash * 0.1); s.cash -= n;
-      return `晚高峰的地铁上，裤兜被人划开了。现金 -¥${n}`; } },
-  { w: 3, apply(s, r) { s.health = Math.min(100, s.health + 12); return '老乡拉你去吃了顿肠粉配糖水。体力 +12'; } },
-  { w: 3, apply(s, r) { const n = r.int(2, 6) * 100; s.cash += n; return `档口老板缺人手，你帮忙卸了一车货。现金 +¥${n}`; } },
-  { w: 2, apply(s, r) {
-      const n = Math.min(s.cash, 300); if (n <= 0) return null; s.cash -= n;
-      return `房东在楼道贴了通知：下月起涨租，先补差价。现金 -¥${n}`; } },
-  { w: 2, apply(s, r) {
-      const ids = Object.keys(s.inv); if (!ids.length) return null;
-      const id = r.pick(ids), it = s.inv[id];
-      const n = Math.max(1, Math.floor(it.qty * 0.3));
-      it.cost -= Math.round(it.cost * n / it.qty); it.qty -= n;
-      if (it.qty <= 0) delete s.inv[id];
-      return { text: '市场抽检，拿不出票据的货被暂扣了。', lost: { id, qty: n } }; } },
-  { w: 2, apply(s, r) {
-      const free = s.capacity - Object.values(s.inv).reduce((a, b) => a + b.qty, 0);
-      const n = Math.min(free, r.int(3, 8)); if (n <= 0) return null;
-      const id = r.pick(['led', 'powerbank', 'earbuds']);
-      const it = s.inv[id] || (s.inv[id] = { qty: 0, cost: 0 }); it.qty += n;
-      return { text: '路过会展中心，参展商撤展前把样品塞给了你。', gained: { id, qty: n } }; } },
-  { w: 2, apply(s, r) {
-      const n = Math.min(s.cash, 200); if (n <= 0) return null; s.cash -= n; s.health -= 5;
-      return `送货的电单车被扣了，交了罚款还走了一路。现金 -¥${n}，体力 -5`; } },
-  { w: 2, apply(s, r) { s.health = Math.min(100, s.health + 8); return '清早爬了趟莲花山，出了一身汗。体力 +8'; } },
-  { w: 2, apply(s, r) { s.health -= 10; s.cash += 400; return '接了个通宵打包发货的急活。现金 +¥400，体力 -10'; } },
-];
+// 随机事件现在是带对话的小场景，写在 story.js 的 EVENT_SCENES 里。
 
 export const RANKS = [
   [-Infinity, '欠债跑路', '这座城市没留住你，债主倒是还记得你。'],
@@ -115,6 +93,13 @@ export const RANKS = [
 ];
 
 // 街区里的档口：每个档口经营一类商品
+// 档口老板的招呼语，按天轮换
+export const GREETINGS = {
+  small: ['随便看，都是厂里直接出来的。', '靓仔，拿得多可以再谈。', '今天刚到的货，手快有手慢无。', '别光看啊，价钱好商量。'],
+  local: ['早上才到的，新鲜得很。', '自己人不骗自己人，这个价拿不到第二家。', '尝一个？不甜不要钱。', '天热放不住，要就趁早。'],
+  premium: ['这种货，不是熟人我都不拿出来。', '看好了再问价，我这不讲虚头。', '行情一天一个样，你自己掂量。', '识货的人不用我多说。'],
+};
+
 export const STALLS = [
   { id: 'small', name: '小商品档', icon: '🔌', color: 0xf97316, goods: ['led', 'powerbank', 'earbuds'] },
   { id: 'local', name: '土特产档', icon: '🧺', color: 0x16a34a, goods: ['lychee', 'oyster', 'milk'] },

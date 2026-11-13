@@ -1,4 +1,7 @@
-// 第一人称的街区：按所在区的布局生成一条街，两侧有档口，地标在街东头或正对街尾。
+// 街区有两种视角，可以随时切换：
+//   'iso' 斜俯视（默认）：镜头从斜上方 45 度跟着主角，可以绕着转和缩放；挡在镜头和街道之间的高楼会自动“剖开”。
+//   'fp'  第一人称：站在街上平视。
+// 按所在区的布局生成一条街，两侧有档口，地标在街东头或正对街尾。
 // 只负责画面、走动和“靠近了谁”，不知道任何买卖规则。
 import * as THREE from '../vendor/three.module.min.js';
 import { labelSprite, signBoard, makeFigure, animateFigure, facadeMaterials, tileTexture } from './models.js';
@@ -6,10 +9,11 @@ import { kit, palm, buildLandmark, decorate, SHOPS, SHOP_COLORS, PALM_DISTRICTS 
 import { STREETS, buildSouth, capBuilding } from './streetscape.js';
 
 const Z_MIN = -4.4, Z_MAX = 4.6, X_MIN = -21;
-const SPEED = 7, TURN = 2.2, NEAR = 3.2, EYE = 1.72;
+const SPEED = 7, TURN = 1.8, NEAR = 3.2;
+const EYE = 1.72, CUT_H = 3.8; // 镜头这一侧，高过这个高度的大件会被隐藏
 const SPOT_Z = 6.5, STAND_Z = 4; // 档口离街心的距离、站位离街心的距离（北侧取负）
 const MOVE_KEYS = { w: [0, 1], arrowup: [0, 1], s: [0, -1], arrowdown: [0, -1], a: [-1, 0], d: [1, 0] }; // [右, 前]
-const TURN_KEYS = { arrowleft: 1, arrowright: -1 };
+const TURN_KEYS = { arrowleft: -1, arrowright: 1, q: -1 };
 const SHIRTS = [0xef4444, 0x3b82f6, 0x22c55e, 0xfacc15, 0xf8fafc, 0xa855f7, 0xf97316, 0x14b8a6, 0x64748b, 0xec4899];
 const PANTS = [0x334155, 0x1e3a8a, 0x44403c, 0x111827, 0x78716c];
 const HAIR = [0x2b2118, 0x111827, 0x4a3728, 0x6b7280];
@@ -18,8 +22,7 @@ export function createStreet(renderer, el, handlers) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xa8d8f0);
   scene.fog = new THREE.Fog(0xa8d8f0, 50, 135);
-  const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 400);
-  camera.rotation.order = 'YXZ';
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 500);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f7a, 1.5));
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.1);
@@ -36,7 +39,14 @@ export function createStreet(renderer, el, handlers) {
   let active = false, world = null, spots = [], pickables = [], walkers = [], ticks = [];
   let near = null, pending = null, target = null, xMax = 32;
   const pos = new THREE.Vector3(); // 玩家脚下的位置
-  let yaw = 0, pitch = 0, turnTo = null, bob = 0; // 视线朝向：前方 = (-sin yaw, 0, -cos yaw)
+  // 镜头绕着主角转：az 是方位角（镜头在主角的 (sin az, cos az) 方向，0 = 正南），elev 是仰角，dist 是距离
+  let az = -Math.PI / 4, elev = 0.72, dist = 31;
+  // 第一人称的视线：前方 = (-sin yaw, 0, -cos yaw)
+  let view = 'iso', yaw = 0, pitch = 0, turnTo = null, bob = 0, vw = 1, vh = 1, fogBase = [50, 135];
+  let labels = [];
+  const look = new THREE.Vector3(); // 镜头盯着的点，平滑地跟着主角
+  let player = null, face = 0, faceTo = null, walkPhase = 0;
+  let cuts = [], cutKey = '';
   const keys = new Set();
 
   function dispose(root) {
@@ -50,7 +60,7 @@ export function createStreet(renderer, el, handlers) {
     if (world) { scene.remove(world); dispose(world); }
     world = new THREE.Group();
     scene.add(world);
-    spots = []; pickables = []; walkers = []; ticks = [];
+    spots = []; pickables = []; walkers = []; ticks = []; cuts = []; cutKey = ''; labels = [];
     let seed = idx * 7919 + 31;
     const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const st = d.style, pal = () => st.palette[Math.floor(r() * st.palette.length)];
@@ -62,7 +72,7 @@ export function createStreet(renderer, el, handlers) {
 
     // 天色
     scene.background.set(conf.sky); scene.fog.color.set(conf.sky);
-    scene.fog.near = conf.fog[0]; scene.fog.far = conf.fog[1];
+    fogBase = conf.fog;
     sun.color.set(conf.sun);
 
     // 地面：草地、铺装、地砖步行道、盲道和本区颜色的边线
@@ -136,6 +146,7 @@ export function createStreet(renderer, el, handlers) {
       const c = k.ball(3 + r() * 3, 0xffffff, -80 + i * 20 + r() * 8, 40 + r() * 16, (i % 2 ? 1 : -1) * (40 + r() * 40));
       c.scale.set(2.2, 0.6, 1); c.castShadow = false;
       c.material = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+      c.userData.noCut = true;
     }
 
     // 可互动的点的位置
@@ -172,9 +183,10 @@ export function createStreet(renderer, el, handlers) {
       if (atEnd) { lm.position.set(34, 0, 0); lm.rotation.y = -Math.PI / 2; } // 正对街尾，面朝西
       else lm.position.set(27.5, 0, -15.5);
       world.add(lm);
+      lm.userData.unit = true; // 地标整体显示或整体隐藏
       if (lm.userData.tick) ticks.push(lm.userData.tick);
       const tag = labelSprite(lm.userData.name, { bg: 'rgba(120,53,15,.85)', size: 30 });
-      tag.scale.multiplyScalar(0.7);
+      labels.push({ s: tag, base: tag.scale.clone(), iso: 0.6, fp: 0.7, y: 4.6 });
       if (atEnd) tag.position.set(28.5, 4.6, 0); else tag.position.set(27.5, 4.6, -9.2);
       world.add(tag);
     }
@@ -183,19 +195,19 @@ export function createStreet(renderer, el, handlers) {
     defs.forEach((def, i) => {
       const [x, side] = conf.spots[i] || [16, 'n'];
       const sgn = side === 'n' ? -1 : 1;
-      const spot = { ...def, x, side, stand: new THREE.Vector3(x, 0, sgn * STAND_Z), faceYaw: side === 'n' ? 0 : Math.PI };
+      const spot = { ...def, x, side, stand: new THREE.Vector3(x, 0, sgn * STAND_Z), faceYaw: side === 'n' ? Math.PI : 0 };
       spots.push(spot);
       const sk = k.sub(x, 0, sgn * SPOT_Z);
       if (side === 's') sk.g.rotation.y = Math.PI;
       const label = y => {
         const s = labelSprite(`${spot.icon} ${spot.name}`);
-        s.scale.multiplyScalar(0.4);
-        s.position.set(0, y - 0.3, 0);
+        s.position.set(0, y, 0);
+        labels.push({ s, base: s.scale.clone(), iso: 0.42, fp: 0.4, y });
         s.userData.spot = spot;
         sk.g.add(s); pickables.push(s);
         const hit = new THREE.Mesh(new THREE.BoxGeometry(4.6, 4, 3.6), new THREE.MeshBasicMaterial({ visible: false }));
         hit.position.set(0, 2, 0);
-        hit.userData.spot = spot;
+        hit.userData.spot = spot; hit.userData.noCut = true;
         sk.g.add(hit); pickables.push(hit);
       };
       if (spot.kind === 'metro') {
@@ -224,7 +236,8 @@ export function createStreet(renderer, el, handlers) {
         }
         for (const dx of [-2.27, 2.27]) sk.box(0.7, 0.5, 0.6, 0xc8a26b, dx, 0.25, -0.2); // 地上的纸箱
         sk.box(0.5, 0.36, 0.03, 0x111827, 1.2, 1.5, 1.0).rotation.x = -0.2; // 价目牌
-        const vendor = makeFigure({ shirt: spot.color, hair: HAIR[i % HAIR.length], scale: 1.15 });
+        const vendor = makeFigure({ shirt: spot.color, hair: HAIR[i % HAIR.length], scale: 1.15, apron: true,
+          hairStyle: ['short', 'bun', 'cap', 'long'][(i + idx) % 4], build: 1 + ((i + idx) % 3) * 0.08 });
         vendor.position.set(0.3, 0, -0.5);
         sk.g.add(vendor);
         label(3.9);
@@ -243,23 +256,81 @@ export function createStreet(renderer, el, handlers) {
     for (let i = 0; i < 12; i++) {
       const f = makeFigure({
         shirt: SHIRTS[Math.floor(r() * SHIRTS.length)], pants: PANTS[Math.floor(r() * PANTS.length)],
-        hair: HAIR[Math.floor(r() * HAIR.length)], pack: r() < 0.3 ? 0x475569 : null, scale: 1.05 + r() * 0.15,
+        hair: HAIR[Math.floor(r() * HAIR.length)], pack: r() < 0.3 ? 0x475569 : null, scale: 0.98 + r() * 0.24,
+        hairStyle: ['short', 'short', 'long', 'long', 'bun', 'cap', 'bald'][Math.floor(r() * 7)],
+        hat: SHIRTS[Math.floor(r() * SHIRTS.length)], skirt: r() < 0.22, bag: r() < 0.35 ? PANTS[Math.floor(r() * PANTS.length)] : null,
+        build: 0.9 + r() * 0.3,
       });
       const dir = r() < 0.5 ? -1 : 1;
       f.position.set(-34 + r() * 60, 0, -3.6 + r() * 7.8);
       f.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      f.userData.noCut = true;
       world.add(f);
       walkers.push({ f, dir, speed: 1.2 + r() * 1.4, phase: r() * 6 });
     }
+
+    // 主角：橙色上衣、背包，脚下一圈光环方便在人群里找到
+    player = makeFigure({ shirt: 0xff5a1f, pants: 0x1f2937, pack: 0x2563eb, scale: 1.2 });
+    const halo = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.66, 28), new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.05;
+    player.add(halo);
+    player.userData.noCut = true;
+    world.add(player);
+
+    // 记下哪些东西在街的哪一侧、够不够高大，镜头转到那一侧时把它们藏起来
+    world.updateMatrixWorld(true);
+    const box = new THREE.Box3(), size = new THREE.Vector3();
+    const consider = (o, unit) => {
+      box.setFromObject(o); box.getSize(size);
+      const big = unit || (box.max.y > CUT_H && size.x * size.z > 9) || box.min.y > 5.5;
+      if (!big) return;
+      const across = box.min.z < 9 && box.max.z > -9; // 横在街上（街两头的楼、街尾的地标）
+      const c = { o, s: box.min.z > 5.2, n: box.max.z < -5.2, e: across && box.min.x > xMax + 1, w: across && box.max.x < X_MIN - 4 };
+      if (c.s || c.n || c.e || c.w) cuts.push(c);
+    };
+    (function walk(o) {
+      for (const ch of o.children) {
+        if (ch.userData.noCut || ch.isSprite) continue;
+        if (ch.userData.unit) consider(ch, true);
+        else if (ch.isMesh) consider(ch, false);
+        else walk(ch);
+      }
+    })(world);
   }
 
-  function placeCamera() {
-    camera.position.set(pos.x, EYE + bob, pos.z);
-    camera.rotation.set(pitch, yaw, 0);
+  // 切换视角时要跟着变的东西：视野、雾、名字牌大小、主角是否可见
+  function applyView() {
+    const fp = view === 'fp', tall = vw < vh;
+    camera.fov = fp ? (tall ? 78 : 66) : (tall ? 50 : 38);
+    camera.near = fp ? 0.1 : 0.5;
+    camera.aspect = vw / vh;
+    camera.updateProjectionMatrix();
+    scene.fog.near = fogBase[0] + (fp ? 0 : 25); scene.fog.far = fogBase[1] + (fp ? 0 : 40);
+    for (const l of labels) { l.s.scale.copy(l.base).multiplyScalar(fp ? l.fp : l.iso); l.s.position.y = l.y + (fp ? -0.3 : 0.3); }
+    if (player) player.visible = !fp;
+    cutKey = '';
+  }
+  function placeCamera(snap) {
+    let key = 'fp';
+    if (view === 'fp') {
+      camera.rotation.order = 'YXZ';
+      camera.position.set(pos.x, EYE + bob, pos.z);
+      camera.rotation.set(pitch, yaw, 0);
+    } else {
+      if (snap) look.set(pos.x, 1.1, pos.z);
+      const h = Math.cos(elev) * dist;
+      camera.position.set(look.x + Math.sin(az) * h, look.y + Math.sin(elev) * dist, look.z + Math.cos(az) * h);
+      camera.lookAt(look);
+      key = (Math.cos(az) > 0.3 ? 's' : Math.cos(az) < -0.3 ? 'n' : '') + (Math.sin(az) > 0.3 ? 'e' : Math.sin(az) < -0.3 ? 'w' : '');
+    }
+    if (key !== cutKey) { // 斜俯视时剖开镜头这一侧的高楼；第一人称全部显示
+      cutKey = key;
+      for (const c of cuts) c.o.visible = !((c.s && key.includes('s')) || (c.n && key.includes('n')) || (c.e && key.includes('e')) || (c.w && key.includes('w')));
+    }
   }
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 
-  // ---------- 输入：拖动转视角，单击走过去或和档口互动 ----------
+  // ---------- 输入：拖动转镜头，滚轮缩放，单击走过去或和档口互动 ----------
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt = new THREE.Vector3();
   function click(e) {
     const rc = el.getBoundingClientRect();
@@ -288,10 +359,15 @@ export function createStreet(renderer, el, handlers) {
     if (!active || !drag || drag.id !== e.pointerId) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 6) { drag.moved = true; el.style.cursor = 'grabbing'; }
     if (drag.moved) {
-      const kf = 0.0045;
-      yaw = wrap(yaw + (e.clientX - drag.x) * kf);
-      pitch = THREE.MathUtils.clamp(pitch + (e.clientY - drag.y) * kf, -1.1, 1.1);
-      turnTo = null;
+      const mx = e.clientX - drag.x, my = e.clientY - drag.y;
+      if (view === 'fp') {
+        yaw = wrap(yaw + mx * 0.0045);
+        pitch = THREE.MathUtils.clamp(pitch + my * 0.0045, -1.1, 1.1);
+        turnTo = null;
+      } else {
+        az = wrap(az - mx * 0.006);
+        elev = THREE.MathUtils.clamp(elev + my * 0.004, 0.56, 1.2);
+      }
     }
     drag.x = e.clientX; drag.y = e.clientY;
   });
@@ -302,6 +378,11 @@ export function createStreet(renderer, el, handlers) {
     el.style.cursor = 'grab';
     if (wasClick && active && handlers.canMove()) click(e);
   };
+  el.addEventListener('wheel', e => {
+    if (!active || view === 'fp') return;
+    e.preventDefault();
+    dist = THREE.MathUtils.clamp(dist * (e.deltaY > 0 ? 1.1 : 0.9), 13, 44);
+  }, { passive: false });
   el.addEventListener('pointerup', release);
   el.addEventListener('pointercancel', release);
 
@@ -312,7 +393,7 @@ export function createStreet(renderer, el, handlers) {
     else if ((key === 'e' || key === 'enter' || key === ' ') && near && handlers.canMove()) {
       if (e.target.tagName === 'BUTTON') return; // 让按钮自己的回车/空格生效
       e.preventDefault();
-      turnTo = near.faceYaw;
+      faceTo = near.faceYaw; turnTo = near.faceYaw + Math.PI;
       handlers.onInteract(near);
     }
   });
@@ -326,20 +407,21 @@ export function createStreet(renderer, el, handlers) {
       if (MOVE_KEYS[key]) { right += MOVE_KEYS[key][0]; fwd += MOVE_KEYS[key][1]; }
       else turn += TURN_KEYS[key];
     }
-    if (turn) { yaw = wrap(yaw + turn * TURN * dt); turnTo = null; }
+    const fp = view === 'fp', heading = fp ? yaw : az; // 键盘方向相对镜头：W 是往画面深处走
+    if (turn) { if (fp) { yaw = wrap(yaw - turn * TURN * dt); turnTo = null; } else az = wrap(az + turn * TURN * dt); }
     let dx = 0, dz = 0, step = SPEED * dt;
     if (right || fwd) {
       target = null; pending = null; marker.visible = false; turnTo = null;
-      const len = Math.hypot(right, fwd), sn = Math.sin(yaw), cs = Math.cos(yaw);
+      const len = Math.hypot(right, fwd), sn = Math.sin(heading), cs = Math.cos(heading);
       dx = (-sn * fwd + cs * right) / len; dz = (-cs * fwd - sn * right) / len;
     } else if (target) {
-      const ox = target.x - pos.x, oz = target.z - pos.z, dist = Math.hypot(ox, oz);
-      if (dist < 0.12) {
+      const ox = target.x - pos.x, oz = target.z - pos.z, d2 = Math.hypot(ox, oz);
+      if (d2 < 0.12) {
         target = null; marker.visible = false;
-        if (pending) { const p = pending; pending = null; turnTo = p.faceYaw; handlers.onInteract(p); }
+        if (pending) { const p = pending; pending = null; faceTo = p.faceYaw; turnTo = p.faceYaw + Math.PI; handlers.onInteract(p); }
       } else {
-        dx = ox / dist; dz = oz / dist; step = Math.min(step, dist);
-        if (!drag && dist > 1.5) turnTo = Math.atan2(-dx, -dz); // 自动走的时候，视线慢慢转向前进方向
+        dx = ox / d2; dz = oz / d2; step = Math.min(step, d2);
+        if (fp && !drag && d2 > 1.5) turnTo = Math.atan2(-dx, -dz); // 第一人称自动走时，视线慢慢转向前进方向
       }
     }
     const moving = dx !== 0 || dz !== 0;
@@ -347,13 +429,22 @@ export function createStreet(renderer, el, handlers) {
       pos.x = THREE.MathUtils.clamp(pos.x + dx * step, X_MIN, xMax);
       pos.z = THREE.MathUtils.clamp(pos.z + dz * step, Z_MIN, Z_MAX);
     }
-    if (turnTo != null) {
+    // 主角朝着走的方向，停在档口前就转身面对档口
+    if (moving) faceTo = Math.atan2(dx, dz);
+    if (faceTo != null) face = wrap(face + wrap(faceTo - face) * Math.min(1, dt * 12));
+    walkPhase += dt * 11;
+    player.position.copy(pos);
+    player.rotation.y = face;
+    animateFigure(player, walkPhase, moving);
+    if (fp && turnTo != null) {
       const diff = wrap(turnTo - yaw);
       yaw = wrap(yaw + diff * Math.min(1, dt * 5));
       pitch += (0 - pitch) * Math.min(1, dt * 3);
       if (Math.abs(diff) < 0.01) turnTo = null;
     }
-    bob += ((moving ? Math.sin(t * 11) * 0.045 : 0) - bob) * Math.min(1, dt * 12);
+    bob += ((fp && moving ? Math.sin(t * 11) * 0.045 : 0) - bob) * Math.min(1, dt * 12);
+    look.x += (pos.x - look.x) * Math.min(1, dt * 6);
+    look.z += (pos.z - look.z) * Math.min(1, dt * 6);
     placeCamera();
 
     for (const w of walkers) {
@@ -376,17 +467,29 @@ export function createStreet(renderer, el, handlers) {
 
   return {
     scene, camera, update,
-    resize(w, h) { camera.aspect = w / h; camera.fov = w < h ? 78 : 66; camera.updateProjectionMatrix(); },
+    resize(w, h) { vw = w; vh = h; applyView(); },
+    get view() { return view; },
+    setView(v) {
+      if (v === view) return;
+      view = v;
+      if (v === 'fp') { yaw = wrap(face + Math.PI); pitch = 0; turnTo = null; } // 进第一人称时，看向主角面朝的方向
+      else { face = wrap(yaw + Math.PI); faceTo = null; } // 回到俯视时镜头方位保持上次的样子，主角面朝刚才看的方向
+      applyView(); placeCamera(true);
+    },
     setActive(v) { active = v; keys.clear(); drag = null; },
-    // startX / startYaw 仅供调试：直接站到街上的某个位置、朝某个方向
-    enter(district, idx, defs, startX, startYaw) {
+    // startX / startAz 仅供调试：直接站到街上的某个位置、把镜头转到某个方位
+    enter(district, idx, defs, startX, startAz) {
       build(district, idx, defs);
-      if (startX == null) { pos.set(spots[0].x + 2.8, 0, -2.4); yaw = -Math.PI / 2 + 0.12; } // 从地铁口出来，面朝东
-      else { pos.set(startX, 0, 0); yaw = startYaw ?? -Math.PI / 2; }
-      pitch = 0; turnTo = null; bob = 0;
+      if (startX == null) pos.set(spots[0].x + 2.8, 0, -2.4); // 从地铁口出来
+      else pos.set(startX, 0, 0);
+      az = startAz ?? -Math.PI / 4;
+      face = Math.PI / 2; faceTo = null;
+      yaw = -Math.PI / 2 + 0.12; pitch = 0; turnTo = null; bob = 0;
+      applyView();
       target = null; pending = null; marker.visible = false;
       near = null;
-      placeCamera();
+      player.position.copy(pos); player.rotation.y = face;
+      placeCamera(true);
     },
   };
 }

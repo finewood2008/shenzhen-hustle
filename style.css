@@ -187,3 +187,25 @@ kbd {
   #dialog .box { padding: 10px 12px 16px; }
   #dialog .text { font-size: 15px; }
 }
+
+/* 视角切换 */
+#viewbtn { position: fixed; right: 12px; bottom: 22px; z-index: 5; padding: 8px 14px; font-size: 13.5px; border-radius: 12px; }
+@media (max-width: 760px) { #viewbtn { bottom: 14px; right: 6px; padding: 7px 10px; } }
+
+/* 订单清单 */
+#orders { position: fixed; left: 12px; top: 84px; z-index: 4; display: flex; flex-direction: column; gap: 6px; width: 250px; }
+#orders:empty { display: none; }
+.order { padding: 8px 12px; font-size: 13px; line-height: 1.5; border-left: 3px solid #f97316; }
+.order.urgent { border-left-color: #f87171; }
+.order small { display: block; color: #94a3b8; font-size: 11.5px; }
+.order.urgent small { color: #fca5a5; }
+.order button { margin-top: 6px; padding: 4px 16px; }
+/* 砍价 */
+#panel .haggle { margin-top: 8px; }
+#panel .haggled { font-size: 12.5px; }
+#panel .haggled.win { color: #4ade80; }
+#panel .haggled.lose { color: #f87171; }
+@media (max-width: 760px) {
+  #orders { top: 104px; left: 6px; width: 190px; }
+  .order { padding: 5px 8px; font-size: 12px; }
+}

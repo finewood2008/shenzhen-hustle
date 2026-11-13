@@ -8,6 +8,14 @@ const LOOKS = {
     shirt: '#e9c46a', collar: 'tee', straps: '#6b4f35', blush: true, brow: '#211b18', browW: 4 },
   biao: { bg: ['#7a2f40', '#2a1118'], skin: '#c48b62', hair: '#15110f', style: 'buzz', jaw: 42, w: 46,
     shirt: '#17191e', collar: 'tee', chain: true, scar: true, brow: '#15110f', browW: 7 },
+  boss: { bg: ['#c9803a', '#5a3413'], skin: '#d9a57b', hair: '#1c1714', style: 'short', jaw: 36, w: 45,
+    shirt: '#e2572b', collar: 'polo', dots: '#ffd166', mustache: true, brow: '#1c1714', browW: 6 },
+  landlord: { bg: ['#8a5aa8', '#3a2350'], skin: '#e6b48e', hair: '#3b2a22', style: 'curly', jaw: 34, w: 43,
+    shirt: '#7c3aed', collar: 'tee', dots: '#f0abfc', lips: '#c0392b', earrings: '#34d399', wrinkles: true, brow: '#3b2a22', browW: 3.5 },
+  auntie: { bg: ['#4fa3a0', '#1d4a48'], skin: '#e3ad84', hair: '#2a211d', style: 'bun', jaw: 32, w: 43,
+    shirt: '#3b82c4', collar: 'tee', apron: true, lips: '#b5533c', blush: true, wrinkles: true, brow: '#2a211d', browW: 3.5 },
+  officer: { bg: ['#51637a', '#1e2835'], skin: '#d2a07a', hair: '#1a1614', style: 'cap', cap: '#1e3a5f', jaw: 34, w: 43,
+    shirt: '#9cc3e6', collar: 'polo', badge: true, brow: '#1a1614', browW: 5 },
 };
 
 // 把颜色调暗（k < 0）或调亮（k > 0）
@@ -28,6 +36,30 @@ function hair(L) {
     return side(d => l + d) + side(d => r - d) +
       `<path d="M72 41 Q100 27 128 41 Q100 35 72 41Z" fill="${L.hair}" opacity=".8"/>`;
   }
+  if (L.style === 'short') { // 偏分短发
+    return `<path d="M${l - 3} 90 C${l - 8} 16 ${r + 8} 16 ${r + 3} 90 C${r - 1} 62 ${r - 22} 50 104 52 C${l + 22} 54 ${l + 5} 64 ${l - 3} 90Z" fill="${L.hair}"/>
+      <path d="M92 30 Q112 26 128 40" stroke="${shade(L.hair, 0.3)}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".5"/>`;
+  }
+  if (L.style === 'curly') { // 一圈小卷
+    let s = `<path d="M${l - 4} 96 C${l - 10} 14 ${r + 10} 14 ${r + 4} 96 C${r - 4} 58 ${l + 4} 58 ${l - 4} 96Z" fill="${L.hair}"/>`;
+    for (let a = 180; a <= 360; a += 20) {
+      const x = 100 + Math.cos(a * Math.PI / 180) * (w + 5), y = 82 + Math.sin(a * Math.PI / 180) * 54;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="13" fill="${a % 40 ? shade(L.hair, 0.12) : L.hair}"/>`;
+    }
+    return s + `<circle cx="${l - 4}" cy="100" r="11" fill="${L.hair}"/><circle cx="${r + 4}" cy="100" r="11" fill="${L.hair}"/>`;
+  }
+  if (L.style === 'bun') { // 中分，头顶扎个髻
+    return `<circle cx="100" cy="24" r="17" fill="${L.hair}"/><circle cx="96" cy="19" r="5" fill="${shade(L.hair, 0.25)}" opacity=".5"/>
+      <path d="M${l - 3} 92 C${l - 8} 18 ${r + 8} 18 ${r + 3} 92 C${r - 2} 66 ${r - 16} 50 100 46 C${l + 16} 50 ${l + 2} 66 ${l - 3} 92Z" fill="${L.hair}"/>
+      <path d="M100 34 L100 46" stroke="${shade(L.hair, 0.35)}" stroke-width="2" opacity=".6"/>`;
+  }
+  if (L.style === 'cap') { // 大檐帽
+    return `<path d="M${l - 1} 90 C${l - 2} 60 ${l + 4} 60 ${l + 6} 66 L${l + 6} 90Z M${r + 1} 90 C${r + 2} 60 ${r - 4} 60 ${r - 6} 66 L${r - 6} 90Z" fill="${L.hair}"/>
+      <path d="M${l - 6} 64 C${l - 8} 14 ${r + 8} 14 ${r + 6} 64Z" fill="${L.cap}"/>
+      <path d="M${l - 12} 63 Q100 48 ${r + 12} 63 Q100 78 ${l - 12} 63Z" fill="${shade(L.cap, -0.35)}"/>
+      <rect x="${l - 6}" y="52" width="${2 * w + 12}" height="7" fill="${shade(L.cap, 0.25)}"/>
+      <circle cx="100" cy="38" r="8" fill="#e7b93c"/><circle cx="100" cy="38" r="4" fill="#b8860b"/>`;
+  }
   // fringe：盖住额头的碎刘海
   return `<path d="M${l - 4} 94 C${l - 9} 14 ${r + 9} 14 ${r + 4} 94 L${r - 3} 70 L${r - 14} 80 L114 62 L102 78 L90 60 L78 78 L${l + 9} 64 L${l + 2} 76 Z" fill="${L.hair}"/>
     <path d="M84 34 Q100 26 118 36" stroke="${shade(L.hair, 0.3)}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>`;
@@ -36,6 +68,7 @@ function hair(L) {
 function face(L, mood) {
   const ink = '#2a1d16', line = shade(L.skin, -0.32);
   // 眉毛：内侧 / 外侧的高度随表情变
+  const lip = L.lips || ink;
   const [bi, bo] = { plain: [0, 0], smile: [-2, -1], angry: [6, -4], sad: [-5, 2] }[mood];
   const brow = sgn => `<path d="M${100 + sgn * 10} ${78 + bi} L${100 + sgn * 30} ${77 + bo}" stroke="${L.brow}" stroke-width="${L.browW}" stroke-linecap="round"/>`;
   const eye = x => mood === 'smile'
@@ -45,10 +78,10 @@ function face(L, mood) {
        <circle cx="${x + 1.4}" cy="91.6" r="1.2" fill="#fff"/>
        <path d="M${x - 8.5} 90.5 Q${x} ${mood === 'angry' ? 88.5 : 85} ${x + 8.5} 90.5" stroke="${ink}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
   const mouth = {
-    plain: `<path d="M89 126 Q100 128.5 111 126" stroke="${ink}" stroke-width="3" fill="none" stroke-linecap="round"/>`,
-    smile: `<path d="M85 122 Q100 138 115 122Z" fill="#fff" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>`,
-    angry: `<path d="M87 129 Q100 121 113 129" stroke="${ink}" stroke-width="3.4" fill="none" stroke-linecap="round"/>`,
-    sad: `<path d="M90 128 Q100 123 110 128" stroke="${ink}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`,
+    plain: `<path d="M89 126 Q100 128.5 111 126" stroke="${lip}" stroke-width="3" fill="none" stroke-linecap="round"/>`,
+    smile: `<path d="M85 122 Q100 138 115 122Z" fill="#fff" stroke="${lip}" stroke-width="3" stroke-linejoin="round"/>`,
+    angry: `<path d="M87 129 Q100 121 113 129" stroke="${lip}" stroke-width="3.4" fill="none" stroke-linecap="round"/>`,
+    sad: `<path d="M90 128 Q100 123 110 128" stroke="${lip}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`,
   }[mood];
   let extra = '';
   if (L.wrinkles) extra += `<path d="M82 60 Q100 56 118 60 M86 67 Q100 64 114 67" stroke="${line}" stroke-width="1.6" fill="none" opacity=".7"/>
@@ -56,6 +89,8 @@ function face(L, mood) {
   if (L.blush) extra += `<circle cx="72" cy="110" r="8" fill="#f08a7a" opacity=".28"/><circle cx="128" cy="110" r="8" fill="#f08a7a" opacity=".28"/>`;
   if (L.scar) extra += `<path d="M124 66 L134 88" stroke="${shade(L.skin, 0.35)}" stroke-width="2.6" stroke-linecap="round"/>
     <path d="M126 73 l6 -2 M128 80 l6 -2" stroke="${shade(L.skin, 0.35)}" stroke-width="1.6"/>`;
+  if (L.mustache) extra += `<path d="M84 119 Q92 110 100 115 Q108 110 116 119 Q108 121 100 118 Q92 121 84 119Z" fill="${L.hair}"/>`;
+  if (L.earrings) extra += `<circle cx="${100 - L.w}" cy="112" r="4.5" fill="${L.earrings}"/><circle cx="${100 + L.w}" cy="112" r="4.5" fill="${L.earrings}"/>`;
   if (L.glasses) extra += `<g fill="rgba(255,255,255,.14)" stroke="#2b2622" stroke-width="3">
     <rect x="66" y="82" width="30" height="23" rx="7"/><rect x="104" y="82" width="30" height="23" rx="7"/></g>
     <path d="M96 91 Q100 88 104 91 M66 90 L${100 - L.w} 88 M134 90 L${100 + L.w} 88" stroke="#2b2622" stroke-width="3" fill="none"/>`;
@@ -78,6 +113,14 @@ function body(L) {
     s += `<path d="M78 155 Q100 184 122 155 L118 148 L82 148Z" fill="${shade(L.skin, -0.14)}"/>
       <path d="M78 155 Q100 184 122 155" stroke="${dark}" stroke-width="4" fill="none"/>`;
   }
+  if (L.dots) for (const [x, y] of [[30, 196], [52, 180], [64, 206], [140, 182], [158, 204], [176, 190], [124, 204], [40, 214]]) {
+    s += `<circle cx="${x}" cy="${y}" r="4.5" fill="${L.dots}" opacity=".85"/>`;
+  }
+  if (L.apron) s += `<path d="M70 176 L130 176 L138 220 L62 220Z" fill="#f4f1ea"/>
+    <path d="M72 176 L86 152 M128 176 L114 152" stroke="#f4f1ea" stroke-width="5"/>
+    <path d="M84 196 h32 v14 h-32Z" fill="none" stroke="#cfc9bb" stroke-width="2"/>`;
+  if (L.badge) s += `<path d="M132 184 l12 0 l0 10 l-6 6 l-6 -6Z" fill="#e7b93c"/>
+    <path d="M40 166 l26 -5 l2 8 l-26 6Z M160 166 l-26 -5 l-2 8 l26 6Z" fill="${dark}"/>`;
   if (L.chain) s += `<path d="M80 160 Q100 196 120 160" stroke="#e7b93c" stroke-width="4.5" fill="none" stroke-dasharray="5 3" stroke-linecap="round"/>`;
   return s;
 }

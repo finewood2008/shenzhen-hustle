@@ -117,7 +117,9 @@ export function tileTexture(base, repeatX, repeatY) {
 }
 
 // 小人：正面朝 +z，脚底在 y = 0，身高约 1.7。四肢可以用 animateFigure 摆动。
-export function makeFigure({ shirt = 0xff5a1f, pants = 0x334155, skin = 0xf2c9a0, hair = 0x2b2118, pack = null, scale = 1 } = {}) {
+// hairStyle: 'short' | 'long' | 'bun' | 'cap' | 'bald'；skirt / apron / bag / build 让路人各不相同。
+export function makeFigure({ shirt = 0xff5a1f, pants = 0x334155, skin = 0xf2c9a0, hair = 0x2b2118, pack = null, scale = 1,
+  hairStyle = 'short', hat = 0x1e3a5f, skirt = false, apron = false, bag = null, build = 1 } = {}) {
   const g = new THREE.Group();
   const mat = c => new THREE.MeshLambertMaterial({ color: c });
   const limb = (r, h, color, x, y) => {
@@ -128,15 +130,32 @@ export function makeFigure({ shirt = 0xff5a1f, pants = 0x334155, skin = 0xf2c9a0
     pivot.add(m); g.add(pivot);
     return pivot;
   };
-  const legL = limb(0.12, 0.62, pants, -0.13, 0.62), legR = limb(0.12, 0.62, pants, 0.13, 0.62);
+  const legColor = skirt ? skin : pants;
+  const legL = limb(skirt ? 0.09 : 0.12, 0.62, legColor, -0.13, 0.62), legR = limb(skirt ? 0.09 : 0.12, 0.62, legColor, 0.13, 0.62);
+  const add = (geo, color, x, y, z) => { const m = new THREE.Mesh(geo, mat(color)); m.position.set(x, y, z); g.add(m); return m; };
+  if (skirt) add(new THREE.CylinderGeometry(0.26, 0.4, 0.42, 12), pants, 0, 0.5, 0);
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.27, 0.62, 10), mat(shirt));
-  torso.position.y = 0.91;
+  torso.position.y = 0.91; torso.scale.set(build, 1, build * 0.92);
   const armL = limb(0.075, 0.52, shirt, -0.31, 1.17), armR = limb(0.075, 0.52, shirt, 0.31, 1.17);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 14, 10), mat(skin));
   head.position.y = 1.45;
   const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.245, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), mat(hair));
   hairCap.position.y = 1.46; hairCap.rotation.x = -0.3;
-  g.add(torso, head, hairCap);
+  g.add(torso, head);
+  if (hairStyle === 'cap') {
+    add(new THREE.CylinderGeometry(0.245, 0.25, 0.14, 14), hat, 0, 1.6, 0);
+    add(new THREE.BoxGeometry(0.34, 0.03, 0.2), hat, 0, 1.55, 0.26);
+    add(new THREE.CylinderGeometry(0.235, 0.235, 0.1, 14), hair, 0, 1.5, -0.02).scale.z = 0.9;
+  } else if (hairStyle !== 'bald') {
+    g.add(hairCap);
+    if (hairStyle === 'long') add(new THREE.CylinderGeometry(0.2, 0.26, 0.5, 10, 1, false, Math.PI / 2, Math.PI), hair, 0, 1.28, -0.02);
+    if (hairStyle === 'bun') add(new THREE.SphereGeometry(0.11, 10, 8), hair, 0, 1.72, -0.1);
+  }
+  if (apron) add(new THREE.BoxGeometry(0.34 * build, 0.5, 0.03), 0xf4f1ea, 0, 0.86, 0.24 * build);
+  if (bag != null) {
+    add(new THREE.BoxGeometry(0.1, 0.24, 0.3), bag, 0.33 * build, 0.72, 0);
+    const strap = add(new THREE.BoxGeometry(0.03, 0.62, 0.05), bag, 0.16, 1.02, 0.2); strap.rotation.z = 0.62;
+  }
   for (const x of [-0.085, 0.085]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), mat(0x1f2937));
     eye.position.set(x, 1.47, 0.215);
