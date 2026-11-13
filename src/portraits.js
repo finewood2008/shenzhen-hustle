@@ -60,6 +60,11 @@ function hair(L) {
       <rect x="${l - 6}" y="52" width="${2 * w + 12}" height="7" fill="${shade(L.cap, 0.25)}"/>
       <circle cx="100" cy="38" r="8" fill="#e7b93c"/><circle cx="100" cy="38" r="4" fill="#b8860b"/>`;
   }
+  if (L.style === 'bald') return '';
+  if (L.style === 'long') { // 披肩长发
+    return `<path d="M${l - 6} 150 C${l - 16} 60 ${l - 6} 14 100 14 C${r + 6} 14 ${r + 16} 60 ${r + 6} 150 L${r - 6} 150 C${r} 100 ${r - 4} 70 ${r - 12} 58 C${r - 26} 46 ${l + 30} 44 ${l + 12} 58 C${l + 4} 70 ${l} 100 ${l + 6} 150Z" fill="${L.hair}"/>
+      <path d="M86 30 Q100 24 116 32" stroke="${shade(L.hair, 0.3)}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>`;
+  }
   // fringe：盖住额头的碎刘海
   return `<path d="M${l - 4} 94 C${l - 9} 14 ${r + 9} 14 ${r + 4} 94 L${r - 3} 70 L${r - 14} 80 L114 62 L102 78 L90 60 L78 78 L${l + 9} 64 L${l + 2} 76 Z" fill="${L.hair}"/>
     <path d="M84 34 Q100 26 118 36" stroke="${shade(L.hair, 0.3)}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>`;
@@ -143,8 +148,23 @@ function passerLook(seed) {
   };
 }
 
+// 主角的头像：按玩家选的上衣、背包、发型来画
+const hx = c => '#' + c.toString(16).padStart(6, '0');
+export function heroPortrait(hero, mood = 'smile') {
+  return draw('hero' + (heroSeq++), {
+    bg: ['#3b4a6b', '#1c2434'], skin: '#ecbd96', hair: '#211b18', jaw: hero.skirt ? 26 : 32, w: 42,
+    style: { short: 'short', long: 'long', bun: 'bun', cap: 'cap', bald: 'bald' }[hero.hair] || 'short',
+    cap: hx(hero.shirt), shirt: hx(hero.shirt), collar: 'tee', straps: hx(hero.pack),
+    brow: '#211b18', browW: hero.skirt ? 3.5 : 5, blush: true, lips: hero.skirt ? '#c0392b' : null,
+  }, mood);
+}
+let heroSeq = 0;
+
 export function portrait(id, mood = 'plain', seed = 0) {
   const L = id === 'passer' ? passerLook(seed + 1) : LOOKS[id];
+  return L ? draw(id, L, mood) : '';
+}
+function draw(id, L, mood) {
   if (!L) return '';
   if (!['plain', 'smile', 'angry', 'sad'].includes(mood)) mood = 'plain';
   const w = L.w, l = 100 - w, r = 100 + w, j = L.jaw;

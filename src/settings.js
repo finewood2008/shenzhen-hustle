@@ -21,6 +21,17 @@ export const HAIRSTYLES = [
   { id: 'cap', name: '鸭舌帽' }, { id: 'bald', name: '光头' },
 ];
 
+// 现成的造型，一键套用
+export const PRESETS = [
+  { name: '稳重款', shirt: 0xff5a1f, pack: 0x2563eb, hair: 'short', skirt: false },
+  { name: '学生款', shirt: 0xf8fafc, pack: 0x475569, hair: 'long', skirt: true },
+  { name: '码农款', shirt: 0x1f2937, pack: 0x111827, hair: 'short', skirt: false },
+  { name: '潮流款', shirt: 0xa855f7, pack: 0xdc2626, hair: 'cap', skirt: false },
+  { name: '干练款', shirt: 0xef4444, pack: 0xf59e0b, hair: 'bun', skirt: true },
+  { name: '硬汉款', shirt: 0x14b8a6, pack: 0x16a34a, hair: 'bald', skirt: false },
+];
+export const NAMES = ['阿明', '小芳', '阿强', '阿珍', '大伟', '小林', '阿欣', '老陈', '小敏', '阿豪'];
+
 const DEFAULTS = {
   theme: 'night', size: 'm', side: 'right',
   stats: { debt: true, bank: true, health: true, pack: true, favor: true },

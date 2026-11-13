@@ -49,6 +49,8 @@ export function createStreet(renderer, el, handlers) {
   let player = null, face = 0, faceTo = null, walkPhase = 0;
   let cuts = [], cutKey = '';
   const keys = new Set();
+  const stick = { x: 0, y: 0 }; // 触屏摇杆：x 向右，y 向前
+  const touches = new Map(); let pinch = 0; // 双指缩放
 
   function dispose(root) {
     root.traverse(o => {
@@ -389,9 +391,22 @@ export function createStreet(renderer, el, handlers) {
   el.addEventListener('pointerdown', e => {
     if (!active || !handlers.canMove()) return;
     try { el.setPointerCapture(e.pointerId); } catch { /* 合成事件没有可捕获的指针 */ }
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) { // 第二根手指落下：开始缩放，不再当成拖动或点击
+      const [a, b] = [...touches.values()];
+      pinch = Math.hypot(a.x - b.x, a.y - b.y); drag = null;
+      return;
+    }
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
   });
   el.addEventListener('pointermove', e => {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (active && pinch && touches.size === 2) {
+      const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (view !== 'fp' && d > 10) dist = THREE.MathUtils.clamp(dist * pinch / d, 13, 44);
+      pinch = d;
+      return;
+    }
     if (!active || !drag || drag.id !== e.pointerId) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 6) { drag.moved = true; el.style.cursor = 'grabbing'; }
     if (drag.moved) {
@@ -408,6 +423,8 @@ export function createStreet(renderer, el, handlers) {
     drag.x = e.clientX; drag.y = e.clientY;
   });
   const release = e => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = 0;
     if (!drag || drag.id !== e.pointerId) return;
     const wasClick = !drag.moved && e.type === 'pointerup';
     drag = null;
@@ -447,6 +464,7 @@ export function createStreet(renderer, el, handlers) {
       if (MOVE_KEYS[key]) { right += MOVE_KEYS[key][0]; fwd += MOVE_KEYS[key][1]; }
       else turn += TURN_KEYS[key];
     }
+    if (handlers.canMove()) { right += stick.x; fwd += stick.y; }
     const fp = view === 'fp', heading = fp ? yaw : az; // 键盘方向相对镜头：W 是往画面深处走
     if (turn) { if (fp) { yaw = wrap(yaw - turn * TURN * dt); turnTo = null; } else az = wrap(az + turn * TURN * dt); }
     let dx = 0, dz = 0, step = SPEED * dt;
@@ -539,7 +557,8 @@ export function createStreet(renderer, el, handlers) {
       else { face = wrap(yaw + Math.PI); faceTo = null; } // 回到俯视时镜头方位保持上次的样子，主角面朝刚才看的方向
       applyView(); placeCamera(true);
     },
-    setActive(v) { active = v; keys.clear(); drag = null; },
+    setActive(v) { active = v; keys.clear(); drag = null; touches.clear(); pinch = 0; stick.x = stick.y = 0; },
+    setStick(x, y) { stick.x = x; stick.y = y; },
     // startX / startAz 仅供调试：直接站到街上的某个位置、把镜头转到某个方位
     enter(district, idx, defs, startX, startAz) {
       build(district, idx, defs);

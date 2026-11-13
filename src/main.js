@@ -4,8 +4,8 @@ import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './
 import * as L from './logic.js';
 import { createScene } from './scene.js';
 import { CAST, nextScene, play, epilogue, walkerKind, walkerScene } from './story.js';
-import { portrait } from './portraits.js';
-import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES } from './settings.js';
+import { portrait, heroPortrait } from './portraits.js';
+import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES, PRESETS, NAMES } from './settings.js';
 
 const $ = sel => document.querySelector(sel);
 const yuan = n => (n < 0 ? '-¥' : '¥') + Math.abs(Math.round(n)).toLocaleString('zh-CN');
@@ -217,6 +217,10 @@ function render() {
     <button data-dock="settings"><i>⚙️</i>设置</button>`;
 
   $('#log').hidden = !settings.showLog;
+  // 触屏摇杆：只在触屏设备的街区里出现
+  $('#stick').hidden = !TOUCH || mode !== 'street' || !!scene || !!activeSpot || s.over || !$('#screen').hidden;
+  if ($('#stick').hidden) resetStick();
+  autosave();
   $('#log').innerHTML = log.slice(-6).map(l => `<p class="${l.cls || ''}">${l.text}</p>`).join('');
 }
 
@@ -441,27 +445,89 @@ $('#dock').addEventListener('click', e => {
   render();
 });
 
+// ---------- 触屏摇杆 ----------
+const TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+let stickId = null;
+function resetStick() { stickId = null; $('#stick i').style.transform = ''; view.setStick(0, 0); }
+function moveStick(e) {
+  const rc = $('#stick').getBoundingClientRect(), R = rc.width / 2;
+  let x = (e.clientX - rc.left - R) / R, y = (e.clientY - rc.top - R) / R;
+  const len = Math.hypot(x, y);
+  if (len > 1) { x /= len; y /= len; }
+  $('#stick i').style.transform = `translate(${x * R * 0.6}px, ${y * R * 0.6}px)`;
+  view.setStick(len < 0.2 ? 0 : x, len < 0.2 ? 0 : -y);
+}
+$('#stick').addEventListener('pointerdown', e => {
+  e.preventDefault();
+  stickId = e.pointerId;
+  try { $('#stick').setPointerCapture(e.pointerId); } catch { /* 合成事件 */ }
+  moveStick(e);
+});
+$('#stick').addEventListener('pointermove', e => { if (e.pointerId === stickId) moveStick(e); });
+for (const ev of ['pointerup', 'pointercancel']) $('#stick').addEventListener(ev, e => { if (e.pointerId === stickId) resetStick(); });
+
+// ---------- 存档：自动存在浏览器里，关掉页面再打开可以接着玩 ----------
+const SAVE = 'sz-save';
+function autosave() {
+  if (!s || s.over || scene || busy) return;
+  try { localStorage.setItem(SAVE, JSON.stringify({ v: 1, s, log: log.slice(-30) })); } catch { /* 存不了就算了 */ }
+}
+function loadSave() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE));
+    return d && d.v === 1 && d.s && !d.s.over && D[d.s.loc] && Array.isArray(d.s.orders) ? d : null;
+  } catch { return null; }
+}
+function clearSave() { try { localStorage.removeItem(SAVE); } catch { /* 无所谓 */ } }
+
 // ---------- 设置：外观、布局、游戏偏好、主角形象 ----------
 const hexc = c => '#' + c.toString(16).padStart(6, '0');
 const seg = (key, list, cur) => `<div class="seg">${list.map(o => `<button data-set="${key}" data-val="${o.id}" class="${String(o.id) === String(cur) ? 'on' : ''}">${o.name}</button>`).join('')}</div>`;
 const swatches = (key, list, cur) => `<div class="seg">${list.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-hero="${key}" data-val="${c}" style="background:${hexc(c)}" aria-label="颜色"></button>`).join('')}</div>`;
+// 形象板块：左边一张“工牌”实时预览，右边先挑现成造型，再按标签页细调
+let heroTab = 'shirt';
+const HERO_TABS = [['shirt', '上衣'], ['pack', '背包'], ['hair', '发型'], ['skirt', '下装']];
 function heroHtml() {
   const h = settings.hero;
+  const same = p => p.shirt === h.shirt && p.pack === h.pack && p.hair === h.hair && p.skirt === h.skirt;
+  const picker = {
+    shirt: () => SHIRTS.map(c => `<button class="sw ${c === h.shirt ? 'on' : ''}" data-hero="shirt" data-val="${c}" style="background:${hexc(c)}" aria-label="上衣颜色"></button>`).join(''),
+    pack: () => PACKS.map(c => `<button class="sw ${c === h.pack ? 'on' : ''}" data-hero="pack" data-val="${c}" style="background:${hexc(c)}" aria-label="背包颜色"></button>`).join(''),
+    hair: () => HAIRSTYLES.map(o => `<button data-hero="hair" data-val="${o.id}" class="${o.id === h.hair ? 'on' : ''}">${o.name}</button>`).join(''),
+    skirt: () => `<button data-hero="skirt" data-val="0" class="${h.skirt ? '' : 'on'}">长裤</button><button data-hero="skirt" data-val="1" class="${h.skirt ? 'on' : ''}">裙子</button>`,
+  }[heroTab]();
   return `<div class="hero">
-    <div class="opt"><span>名字</span><input type="text" id="hero-name" maxlength="8" placeholder="阿明" value="${h.name.replace(/"/g, '&quot;')}" style="max-width:180px"></div>
-    <div class="opt"><span>上衣</span>${swatches('shirt', SHIRTS, h.shirt)}</div>
-    <div class="opt"><span>背包</span>${swatches('pack', PACKS, h.pack)}</div>
-    <div class="opt"><span>发型</span><div class="seg">${HAIRSTYLES.map(o => `<button data-hero="hair" data-val="${o.id}" class="${o.id === h.hair ? 'on' : ''}">${o.name}</button>`).join('')}</div></div>
-    <div class="opt"><span>下装</span><div class="seg"><button data-hero="skirt" data-val="0" class="${h.skirt ? '' : 'on'}">长裤</button><button data-hero="skirt" data-val="1" class="${h.skirt ? 'on' : ''}">裙子</button></div></div>
+    <div class="badge">
+      <i class="clip"></i>
+      <div class="ava">${heroPortrait(h)}</div>
+      <input type="text" id="hero-name" maxlength="8" placeholder="点这里起名" value="${h.name.replace(/"/g, '&quot;')}" aria-label="名字">
+      <small>深圳搞钱人 · 第 1 天报到</small>
+      <button class="dice" data-random title="随机一个">🎲 随机</button>
+    </div>
+    <div class="looks">
+      <h4>挑一个造型</h4>
+      <div class="presets">${PRESETS.map((p, i) => `<button data-preset="${i}" class="${same(p) ? 'on' : ''}"><span>${heroPortrait(p, 'plain')}</span>${p.name}</button>`).join('')}</div>
+      <h4>或者自己搭</h4>
+      <div class="tabs">${HERO_TABS.map(([k, n]) => `<button data-herotab="${k}" class="${k === heroTab ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="pick">${picker}</div>
+    </div>
   </div>`;
 }
-// 形象选项的点击和输入，封面和设置面板共用
+// 形象选项的点击和输入，封面和设置面板共用。返回 true 表示需要重画
 function heroInput(e) {
-  if (e.target.id === 'hero-name') { settings.hero.name = e.target.value; saveSettings(); return true; }
-  const b = e.target.closest && e.target.closest('[data-hero]');
-  if (!b || e.type !== 'click') return false;
-  const k = b.dataset.hero, v = b.dataset.val;
-  settings.hero[k] = k === 'hair' ? v : k === 'skirt' ? v === '1' : Number(v);
+  if (e.target.id === 'hero-name') { settings.hero.name = e.target.value; saveSettings(); return false; }
+  if (e.type !== 'click' || !e.target.closest) return false;
+  const h = settings.hero;
+  const tab = e.target.closest('[data-herotab]'), pre = e.target.closest('[data-preset]'), b = e.target.closest('[data-hero]');
+  if (tab) { heroTab = tab.dataset.herotab; return true; }
+  if (pre) Object.assign(h, PRESETS[Number(pre.dataset.preset)], { name: h.name });
+  else if (e.target.closest('[data-random]')) {
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    Object.assign(h, { name: pick(NAMES), shirt: pick(SHIRTS), pack: pick(PACKS), hair: pick(HAIRSTYLES).id, skirt: Math.random() < 0.4 });
+  } else if (b) {
+    const k = b.dataset.hero, v = b.dataset.val;
+    h[k] = k === 'hair' ? v : k === 'skirt' ? v === '1' : Number(v);
+  } else return false;
   saveSettings();
   view.refreshPlayer();
   return true;
@@ -486,13 +552,14 @@ function openSettings() {
         <div class="opt"><span>默认视角</span>${seg('view', [{ id: 'iso', name: '斜俯视' }, { id: 'fp', name: '第一人称' }], settings.view)}</div>
         <div class="opt"><span>对话文字速度</span>${seg('speed', SPEEDS, settings.speed)}</div>
       </section>
-      <section><h4>我的形象</h4>${heroHtml()}</section>
+      <section class="herosec"><h4>我的形象</h4>${heroHtml()}</section>
     </div>`;
     sh.firstElementChild.scrollTop = y;
   };
   sh.onclick = e => {
     if (e.target === sh || e.target.closest('[data-close]')) { sh.hidden = true; render(); return; }
     if (heroInput(e)) { draw(); render(); return; }
+    if (e.target.closest('.hero')) return;
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.stat) settings.stats[b.dataset.stat] = !settings.stats[b.dataset.stat];
@@ -583,35 +650,46 @@ function bestScore() { try { return JSON.parse(localStorage.getItem('sz-best'));
 function saveBest(v) { try { localStorage.setItem('sz-best', JSON.stringify(v)); } catch { /* 存不了就算了 */ } }
 
 function startScreen() {
-  const best = bestScore(), sc = $('#screen');
-  sc.innerHTML = `<div class="card glass">
-    <span class="tag">30 天挑战</span>
-    <h1>深圳<span>搞钱</span>记</h1>
-    <div class="sub">一个行李箱，三十天，一座不睡觉的城市。你揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
-    <h4 style="margin:0 0 4px;color:var(--muted);font-size:.86em">我的形象</h4>
-    ${heroHtml()}
-    <button class="primary" id="start">开始搞钱</button>
-    ${best != null ? `<div class="best">历史最佳 ${yuan(best)}</div>` : ''}
-    <details><summary>怎么玩</summary><div class="intro">
-      · 点地面走过去，或用 WASD；按住拖动转镜头，滚轮缩放，按 V 切换第一人称。<br>
-      · 走近档口看货，低买高卖；每个档口每天能砍一次价。<br>
-      · 去地铁站换区，每换一次过一天。欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖的老乡会才能还。<br>
-      · 有人会找你下订单，按时把货送到指定的区，价钱比市面高。<br>
-      · 路人可以搭话：头顶 💬 的有行情消息，❗ 的有事找你。<br>
-      · 怎么待人会影响人情，人情影响砍价、借款和结局。<br>
-      · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。<br>
-      · 主题、布局和形象随时可以在底栏的“设置”里改。
-    </div></details>
+  const best = bestScore(), sc = $('#screen'), save = loadSave();
+  sc.innerHTML = `<div class="card glass cover">
+    <div class="pitch">
+      <span class="tag">30 天挑战</span>
+      <h1>深圳<span>浮生</span>记</h1>
+      <div class="sub">一个行李箱，三十天，一座不睡觉的城市。你揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
+      <ul class="points">
+        <li><i>📈</i><b>低买高卖</b>十个区、十样货，行情一天一变</li>
+        <li><i>📦</i><b>接单跑腿</b>按时送到，价钱比市面高</li>
+        <li><i>🤝</i><b>人情世故</b>怎么待人，决定谁肯帮你</li>
+      </ul>
+    </div>
+    <div class="me">${heroHtml()}</div>
+    <div class="go">
+      ${save ? `<button class="primary" id="resume">继续上一局（第 ${save.s.day} 天 · ${yuan(save.s.cash)}）</button>` : ''}
+      <button class="${save ? 'again' : 'primary'}" id="start">${save ? '重新开局' : '开始搞钱'}</button>
+      ${best != null ? `<div class="best">历史最佳 ${yuan(best)}</div>` : ''}
+      <details><summary>怎么玩</summary><div class="intro">
+        · 点地面走过去，或用 WASD；按住拖动转镜头，滚轮缩放，按 V 切换第一人称。<br>
+        · 走近档口看货，低买高卖；每个档口每天能砍一次价。<br>
+        · 去地铁站换区，每换一次过一天。欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖的老乡会才能还。<br>
+        · 有人会找你下订单，按时把货送到指定的区，价钱比市面高。<br>
+        · 路人可以搭话：头顶 💬 的有行情消息，❗ 的有事找你。<br>
+        · 怎么待人会影响人情，人情影响砍价、借款和结局。<br>
+        · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。<br>
+        · 主题、布局和形象随时可以在底栏的“设置”里改。
+      </div></details>
+    </div>
   </div>`;
   sc.hidden = false;
   sc.onclick = e => { if (heroInput(e)) { const y = sc.firstElementChild.scrollTop; startScreen(); sc.firstElementChild.scrollTop = y; } };
   sc.oninput = heroInput;
-  $('#start').onclick = startGame;
+  $('#start').onclick = () => startGame();
+  if (save) $('#resume').onclick = () => startGame(save);
 }
 
-function startGame() {
-  s = L.newGame();
-  log = []; busy = false; scene = null;
+// saved 有值就是读档接着玩
+function startGame(saved) {
+  s = saved ? { ...L.newGame(), ...saved.s } : L.newGame(); // 旧存档缺的字段用新局的默认值补上
+  log = saved ? saved.log || [] : []; busy = false; scene = null;
   $('#dialog').hidden = true;
   $('#screen').hidden = true;
   $('#screen').onclick = $('#screen').oninput = null;
@@ -619,7 +697,7 @@ function startGame() {
   if (document.activeElement) document.activeElement.blur();
   view.setPlayerAt(s.loc);
   view.setStreetView(settings.view);
-  say(`第 1 天，你拖着行李箱走出${D[s.loc].name}的地铁站。`);
+  say(saved ? `接着玩：第 ${s.day} 天，${D[s.loc].name}。` : `第 1 天，你拖着行李箱走出${D[s.loc].name}的地铁站。`);
   showRumor();
   enterStreet();
   render();
@@ -628,6 +706,7 @@ function startGame() {
 
 function endGame() {
   const r = L.settle(s);
+  clearSave();
   const prev = bestScore();
   const isBest = prev == null || r.score > prev;
   if (isBest) saveBest(r.score);

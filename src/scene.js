@@ -284,6 +284,7 @@ export function createScene(container, districts, handlers) {
       el.style.cursor = 'grab';
     },
     get streetView() { return street.view; },
+    setStick(x, y) { street.setStick(x, y); },
     refreshPlayer() { street.refreshPlayer(); },
     releaseWalker(i, icon) { street.releaseWalker(i, icon); },
     setStreetView(v) { street.setView(v); },

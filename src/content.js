@@ -1,6 +1,6 @@
 // 全部游戏内容（标题、数值、地点、商品、事件）都在这个文件里，改这里即可调整游戏。
 
-export const TITLE = '深圳搞钱记';
+export const TITLE = '深圳浮生记';
 
 export const CONFIG = {
   days: 30,          // 一局的总天数
