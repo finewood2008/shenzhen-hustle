@@ -2,7 +2,7 @@
 
 一个原创的 3D 网页倒卖模拟游戏：三十天，在深圳各区之间低买高卖、还清欠款。
 
-在线试玩：https://finewood2008.github.io/shenzhen-hustle/
+在线试玩：https://shenzhenfushengji.vercel.app/ （带天梯）· 备用：https://finewood2008.github.io/shenzhen-hustle/
 
 - 街区默认是斜 45 度俯视，按 V 切换第一人称；点地面走动，或用 WASD，手机上有虚拟摇杆
 - 走近档口交易，每个档口每天能砍一次价；去地铁站换区，每次移动耗时一天

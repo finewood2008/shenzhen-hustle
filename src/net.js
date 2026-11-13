@@ -2,7 +2,7 @@
 // 任何一步失败（没网、数据库没开通、本地开发没有后端）都只是拿不到结果，不影响游戏本身。
 
 // 正式站上用同源地址；GitHub Pages 那份没有后端，转去调正式站的接口
-const HOME = 'https://shenzhen-hustle.vercel.app';
+const HOME = 'https://shenzhenfushengji.vercel.app';
 const BASE = location.hostname.endsWith('github.io') ? HOME : '';
 const KEY = 'sz-account';
 
