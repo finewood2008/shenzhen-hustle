@@ -3,8 +3,9 @@
 import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
-import { CAST, nextScene, play, epilogue } from './story.js';
+import { CAST, nextScene, play, epilogue, walkerKind, walkerScene } from './story.js';
 import { portrait } from './portraits.js';
+import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES } from './settings.js';
 
 const $ = sel => document.querySelector(sel);
 const yuan = n => (n < 0 ? '-¥' : '¥') + Math.abs(Math.round(n)).toLocaleString('zh-CN');
@@ -15,20 +16,31 @@ const hex = c => '#' + c.toString(16).padStart(6, '0');
 let s = null, busy = false, log = [], toastTimer = 0;
 let mode = 'street', nearSpot = null, activeSpot = null;
 let scene = null; // 正在播放的剧情对话
+let nearWalker = null; // 身边的路人编号
+const MARKS = { tip: '💬', ask: '❗' };
 document.title = TITLE;
-for (const id of ['#panel', '#log', '#bar', '#travel', '#toast', '#modal-card']) $(id).classList.add('glass');
+for (const id of ['#panel', '#log', '#bar', '#dock', '#travel', '#toast', '#modal-card']) $(id).classList.add('glass');
+applySettings();
 
 const playing = () => s && !s.over && !busy && !scene;
 const view = createScene($('#stage'), DISTRICTS, {
   onPick,
   street: {
-    canMove: () => playing() && mode === 'street' && $('#modal').hidden && $('#screen').hidden,
+    canMove: () => playing() && mode === 'street' && $('#modal').hidden && $('#screen').hidden && $('#sheet').hidden,
+    playerLook: heroLook,
     onNear(spot) {
       nearSpot = spot;
       if (activeSpot && (!spot || spot.id !== activeSpot.id)) activeSpot = null; // 走开就收摊
       render();
     },
     onInteract: interact,
+    walkerMark: i => (s ? MARKS[walkerKind(s, i)] || null : null),
+    onNearWalker(i) { nearWalker = i; render(); },
+    onTalk(i) { // 走到路人跟前了
+      const sc = playing() && walkerScene(s, i);
+      if (!sc) { if (playing()) toast('他摆摆手：刚才不是聊过了嘛。', 2200); view.releaseWalker(i); return; }
+      startScene(sc, () => view.releaseWalker(i), s.day * 100 + DISTRICTS.indexOf(D[s.loc]) * 13 + i);
+    },
   },
 });
 
@@ -111,17 +123,23 @@ function serviceHtml(kind) {
 function render() {
   if (!s) return;
   const last = L.isLastDay(s), d = D[s.loc];
-  const stat = (label, value, cls = '', extra = '') =>
-    `<div class="stat glass ${cls}"><small>${label}</small><b>${value}</b>${extra}</div>`;
-  $('#hud').innerHTML =
-    stat('日期', `第 ${s.day} / ${CONFIG.days} 天`, last ? 'warn' : '') +
-    stat('所在', d.name) +
-    stat('现金', yuan(s.cash), 'good') +
-    stat('存款', yuan(s.bank)) +
-    stat('欠款', yuan(s.debt), s.debt > 0 ? 'warn' : '') +
-    stat('体力', s.health, s.health < 40 ? 'warn' : '', `<div class="bar"><i style="width:${s.health}%"></i></div>`) +
-    stat('背包', `${L.used(s)} / ${s.capacity}`) +
-    stat('人情', (s.favor > 0 ? '+' : '') + s.favor, s.favor < 0 ? 'warn' : '');
+  const on = settings.stats, sub = [];
+  if (on.debt) sub.push(`<span class="${s.debt > 0 ? 'bad' : ''}">待还 ${yuan(s.debt)}</span>`);
+  if (on.bank) sub.push(`<span>存款 ${yuan(s.bank)}</span>`);
+  if (on.health) sub.push(`<span class="${s.health < 40 ? 'bad' : ''}">体力 ${s.health}</span>`);
+  if (on.pack) sub.push(`<span>背包 ${L.used(s)}/${s.capacity}</span>`);
+  if (on.favor) sub.push(`<span class="${s.favor < 0 ? 'bad' : ''}">人情 ${s.favor > 0 ? '+' : ''}${s.favor}</span>`);
+  $('#hud').innerHTML = `
+    <div class="topline">
+      <span class="chip ${last ? 'warn' : ''}">📅 第 ${s.day}/${CONFIG.days} 天</span>
+      <span class="chip">📍 ${d.name}</span>
+    </div>
+    <div class="wallet">
+      <small>${heroName() === '你' ? '余额' : heroName() + ' 的余额'}</small>
+      <b>${yuan(s.cash)}</b>
+      <div class="sub">${sub.join('')}</div>
+      ${on.health ? `<div class="hp"><i style="width:${s.health}%"></i></div>` : ''}
+    </div>`;
 
   // 交易面板：只在街区里和某个档口/服务点互动时出现
   const panel = $('#panel');
@@ -168,12 +186,17 @@ function render() {
       const verb = nearSpot.kind === 'metro' ? '看地图换区' : nearSpot.kind === 'stall' ? '看货' : '办事';
       html += `<button class="primary" data-bar="interact"><kbd>E</kbd>${nearSpot.icon} ${nearSpot.name} · ${verb}</button>`;
     }
+    else if (nearWalker != null && walkerKind(s, nearWalker) !== 'done') {
+      const k = walkerKind(s, nearWalker);
+      html += `<button data-bar="talk"><kbd>E</kbd>${MARKS[k] || '🚶'} 跟路人${k === 'tip' ? '打听消息' : k === 'ask' ? '说句话' : '聊两句'}</button>`;
+    }
     if (last) html += '<button data-bar="settle">结算</button>';
   }
   bar.innerHTML = html;
   bar.hidden = !html;
 
   // 订单清单
+  $('#orders').hidden = !settings.showOrders;
   $('#orders').innerHTML = s.orders.map((o, i) => {
     const have = s.inv[o.good] ? s.inv[o.good].qty : 0, left = o.deadline - s.day;
     const here = s.loc === o.to, ready = L.canDeliver(s, o);
@@ -184,11 +207,16 @@ function render() {
     </div>`;
   }).join('');
 
-  // 视角切换按钮：只在街区里、没有对话和面板时出现
-  const vb = $('#viewbtn');
-  vb.hidden = mode !== 'street' || !!scene || s.over || !$('#screen').hidden;
-  vb.innerHTML = view.streetView === 'fp' ? '<kbd>V</kbd>切到俯视' : '<kbd>V</kbd>切到第一人称';
+  // 底栏：订单、消息、视角、设置
+  const dock = $('#dock');
+  dock.hidden = !!scene || s.over || !$('#screen').hidden;
+  dock.innerHTML = `
+    <button data-dock="orders" class="${settings.showOrders ? 'on' : ''}"><i>📦</i>订单${s.orders.length ? `<em>${s.orders.length}</em>` : ''}</button>
+    <button data-dock="log" class="${settings.showLog ? 'on' : ''}"><i>💬</i>消息</button>
+    ${mode === 'street' ? `<button data-dock="view"><i>${view.streetView === 'fp' ? '🧍' : '🎥'}</i>${view.streetView === 'fp' ? '第一人称' : '俯视'}</button>` : ''}
+    <button data-dock="settings"><i>⚙️</i>设置</button>`;
 
+  $('#log').hidden = !settings.showLog;
   $('#log').innerHTML = log.slice(-6).map(l => `<p class="${l.cls || ''}">${l.text}</p>`).join('');
 }
 
@@ -250,7 +278,11 @@ const dlg = { root: $('#dialog'), portrait: $('#dialog .portrait'), who: $('#dia
 function checkStory(then) {
   const sc = s && !scene && nextScene(s);
   if (!sc) { if (then) then(); return; }
-  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then: () => checkStory(then) };
+  startScene(sc, () => checkStory(then));
+}
+// 播放一段对话，播完调用 then。seed 决定路人长什么样
+function startScene(sc, then, seed = 0) {
+  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then, seed };
   activeSpot = null;
   dlg.root.hidden = false;
   render();
@@ -268,7 +300,7 @@ function showLine() {
     return;
   }
   const c = CAST[cur.who];
-  const art = portrait(cur.who, cur.mood);
+  const art = portrait(cur.who, cur.mood, scene.seed);
   dlg.root.dataset.who = cur.who;
   dlg.portrait.innerHTML = art;
   dlg.portrait.hidden = !art;
@@ -281,7 +313,7 @@ function showLine() {
   clearInterval(scene.timer);
   const t0 = performance.now(); // 按时间算字数，标签页被降频时也不会变慢
   scene.timer = setInterval(() => {
-    scene.shown = Math.min(scene.full.length, Math.floor((performance.now() - t0) / 24) + 1);
+    scene.shown = settings.speed ? Math.min(scene.full.length, Math.floor((performance.now() - t0) / settings.speed) + 1) : scene.full.length;
     dlg.text.textContent = scene.full.slice(0, scene.shown);
     if (scene.shown >= scene.full.length) lineDone();
   }, 26);
@@ -388,6 +420,7 @@ $('#bar').addEventListener('click', e => {
   b.blur();
   const act = b.dataset.bar;
   if (act === 'interact' && nearSpot) interact(nearSpot);
+  else if (act === 'talk') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
   else if (act === 'back') backToStreet();
   else if (act === 'settle') endGame();
 });
@@ -397,9 +430,86 @@ function toggleView() {
   view.setStreetView(view.streetView === 'fp' ? 'iso' : 'fp');
   render();
 }
-$('#viewbtn').addEventListener('click', e => { e.currentTarget.blur(); toggleView(); });
+$('#dock').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const act = b.dataset.dock;
+  if (act === 'view') toggleView();
+  else if (act === 'settings') openSettings();
+  else if (act === 'orders') { settings.showOrders = !settings.showOrders; saveSettings(); }
+  else if (act === 'log') { settings.showLog = !settings.showLog; saveSettings(); }
+  render();
+});
+
+// ---------- 设置：外观、布局、游戏偏好、主角形象 ----------
+const hexc = c => '#' + c.toString(16).padStart(6, '0');
+const seg = (key, list, cur) => `<div class="seg">${list.map(o => `<button data-set="${key}" data-val="${o.id}" class="${String(o.id) === String(cur) ? 'on' : ''}">${o.name}</button>`).join('')}</div>`;
+const swatches = (key, list, cur) => `<div class="seg">${list.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-hero="${key}" data-val="${c}" style="background:${hexc(c)}" aria-label="颜色"></button>`).join('')}</div>`;
+function heroHtml() {
+  const h = settings.hero;
+  return `<div class="hero">
+    <div class="opt"><span>名字</span><input type="text" id="hero-name" maxlength="8" placeholder="阿明" value="${h.name.replace(/"/g, '&quot;')}" style="max-width:180px"></div>
+    <div class="opt"><span>上衣</span>${swatches('shirt', SHIRTS, h.shirt)}</div>
+    <div class="opt"><span>背包</span>${swatches('pack', PACKS, h.pack)}</div>
+    <div class="opt"><span>发型</span><div class="seg">${HAIRSTYLES.map(o => `<button data-hero="hair" data-val="${o.id}" class="${o.id === h.hair ? 'on' : ''}">${o.name}</button>`).join('')}</div></div>
+    <div class="opt"><span>下装</span><div class="seg"><button data-hero="skirt" data-val="0" class="${h.skirt ? '' : 'on'}">长裤</button><button data-hero="skirt" data-val="1" class="${h.skirt ? 'on' : ''}">裙子</button></div></div>
+  </div>`;
+}
+// 形象选项的点击和输入，封面和设置面板共用
+function heroInput(e) {
+  if (e.target.id === 'hero-name') { settings.hero.name = e.target.value; saveSettings(); return true; }
+  const b = e.target.closest && e.target.closest('[data-hero]');
+  if (!b || e.type !== 'click') return false;
+  const k = b.dataset.hero, v = b.dataset.val;
+  settings.hero[k] = k === 'hair' ? v : k === 'skirt' ? v === '1' : Number(v);
+  saveSettings();
+  view.refreshPlayer();
+  return true;
+}
+function openSettings() {
+  const sh = $('#sheet');
+  const draw = () => {
+    const y = sh.firstElementChild ? sh.firstElementChild.scrollTop : 0;
+    sh.innerHTML = `<div class="card glass">
+      <header><b>设置</b><button data-close>完成</button></header>
+      <section><h4>外观</h4>
+        <div class="opt"><span>主题</span><div class="seg">${THEMES.map(th => `<button class="sw theme ${th.id === settings.theme ? 'on' : ''}" data-set="theme" data-val="${th.id}" title="${th.name}" aria-label="${th.name}" style="background:linear-gradient(135deg, ${th.swatch[0]} 55%, ${th.swatch[1]} 55%)"></button>`).join('')}</div></div>
+        <div class="opt"><span>字号</span>${seg('size', SIZES, settings.size)}</div>
+      </section>
+      <section><h4>布局</h4>
+        <div class="opt"><span>交易面板</span>${seg('side', [{ id: 'left', name: '靠左' }, { id: 'right', name: '靠右' }], settings.side)}</div>
+        <div class="opt"><span>余额卡片显示</span><div class="seg">${STATS.map(o => `<button data-stat="${o.id}" class="${settings.stats[o.id] ? 'on' : ''}">${o.name}</button>`).join('')}</div></div>
+        <div class="opt"><span>订单清单</span>${seg('showOrders', [{ id: 'true', name: '显示' }, { id: 'false', name: '隐藏' }], settings.showOrders)}</div>
+        <div class="opt"><span>消息记录</span>${seg('showLog', [{ id: 'true', name: '显示' }, { id: 'false', name: '隐藏' }], settings.showLog)}</div>
+      </section>
+      <section><h4>游戏</h4>
+        <div class="opt"><span>默认视角</span>${seg('view', [{ id: 'iso', name: '斜俯视' }, { id: 'fp', name: '第一人称' }], settings.view)}</div>
+        <div class="opt"><span>对话文字速度</span>${seg('speed', SPEEDS, settings.speed)}</div>
+      </section>
+      <section><h4>我的形象</h4>${heroHtml()}</section>
+    </div>`;
+    sh.firstElementChild.scrollTop = y;
+  };
+  sh.onclick = e => {
+    if (e.target === sh || e.target.closest('[data-close]')) { sh.hidden = true; render(); return; }
+    if (heroInput(e)) { draw(); render(); return; }
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.stat) settings.stats[b.dataset.stat] = !settings.stats[b.dataset.stat];
+    else if (b.dataset.set) {
+      const k = b.dataset.set, v = b.dataset.val;
+      settings[k] = k === 'speed' ? Number(v) : k.startsWith('show') ? v === 'true' : v;
+      if (k === 'view' && s && !s.over) view.setStreetView(v);
+    } else return;
+    saveSettings(); applySettings(); draw(); render();
+  };
+  sh.oninput = heroInput;
+  draw();
+  sh.hidden = false;
+}
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) { e.stopImmediatePropagation(); $('#sheet').hidden = true; render(); } }, true);
 window.addEventListener('keydown', e => {
-  if (e.key.toLowerCase() === 'v' && e.target.tagName !== 'INPUT' && !e.metaKey && !e.ctrlKey && $('#modal').hidden) toggleView();
+  if (e.key.toLowerCase() === 'v' && e.target.tagName !== 'INPUT' && !e.metaKey && !e.ctrlKey && $('#modal').hidden && $('#sheet').hidden) { toggleView(); render(); }
 });
 
 $('#orders').addEventListener('click', e => {
@@ -473,27 +583,29 @@ function bestScore() { try { return JSON.parse(localStorage.getItem('sz-best'));
 function saveBest(v) { try { localStorage.setItem('sz-best', JSON.stringify(v)); } catch { /* 存不了就算了 */ } }
 
 function startScreen() {
-  const best = bestScore();
-  $('#screen').innerHTML = `<div class="card glass">
-    <h1>${TITLE}</h1>
-    <div class="sub">一个行李箱，三十天，一座不睡觉的城市</div>
-    <div class="intro">
-      你揣着老乡会借的 ${yuan(CONFIG.startDebt)} 来到深圳，手里还剩 ${yuan(CONFIG.startCash)} 现金。<br>
-      · 路上会遇到人和事，怎么选，会影响别人怎么看你（人情）。<br>
-      · 点地面走过去，或用 WASD 走动；按住拖动转镜头，滚轮缩放。<br>
-      · 按 V 或右下角的按钮，可以在斜俯视和第一人称之间切换。<br>
-      · 靠近档口按 E（或直接点它）看货，低买高卖。<br>
-      · 每个区的街都不一样；镜头转到哪一侧，那一侧的高楼会自动剖开。<br>
-      · 去地铁站打开地图换区，每换一次过一天。<br>
-      · 有人会找你下订单：按时把货送到指定的区，价钱比市面高。档口每天还能砍一次价。<br>
-      · 欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖口岸的老乡会才能还。<br>
-      · 地图上飘着小道消息：红色是要涨，绿色是要跌。<br>
-      · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。
-    </div>
-    ${best != null ? `<p style="color:#94a3b8;margin-top:12px">历史最佳：${yuan(best)}</p>` : ''}
-    <button class="primary" id="start">开始闯荡</button>
+  const best = bestScore(), sc = $('#screen');
+  sc.innerHTML = `<div class="card glass">
+    <span class="tag">30 天挑战</span>
+    <h1>深圳<span>搞钱</span>记</h1>
+    <div class="sub">一个行李箱，三十天，一座不睡觉的城市。你揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
+    <h4 style="margin:0 0 4px;color:var(--muted);font-size:.86em">我的形象</h4>
+    ${heroHtml()}
+    <button class="primary" id="start">开始搞钱</button>
+    ${best != null ? `<div class="best">历史最佳 ${yuan(best)}</div>` : ''}
+    <details><summary>怎么玩</summary><div class="intro">
+      · 点地面走过去，或用 WASD；按住拖动转镜头，滚轮缩放，按 V 切换第一人称。<br>
+      · 走近档口看货，低买高卖；每个档口每天能砍一次价。<br>
+      · 去地铁站换区，每换一次过一天。欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖的老乡会才能还。<br>
+      · 有人会找你下订单，按时把货送到指定的区，价钱比市面高。<br>
+      · 路人可以搭话：头顶 💬 的有行情消息，❗ 的有事找你。<br>
+      · 怎么待人会影响人情，人情影响砍价、借款和结局。<br>
+      · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。<br>
+      · 主题、布局和形象随时可以在底栏的“设置”里改。
+    </div></details>
   </div>`;
-  $('#screen').hidden = false;
+  sc.hidden = false;
+  sc.onclick = e => { if (heroInput(e)) { const y = sc.firstElementChild.scrollTop; startScreen(); sc.firstElementChild.scrollTop = y; } };
+  sc.oninput = heroInput;
   $('#start').onclick = startGame;
 }
 
@@ -502,9 +614,11 @@ function startGame() {
   log = []; busy = false; scene = null;
   $('#dialog').hidden = true;
   $('#screen').hidden = true;
+  $('#screen').onclick = $('#screen').oninput = null;
   $('#travel').hidden = true;
   if (document.activeElement) document.activeElement.blur();
   view.setPlayerAt(s.loc);
+  view.setStreetView(settings.view);
   say(`第 1 天，你拖着行李箱走出${D[s.loc].name}的地铁站。`);
   showRumor();
   enterStreet();
@@ -521,18 +635,21 @@ function endGame() {
   activeSpot = null;
   $('#panel').hidden = true;
   $('#bar').hidden = true;
-  $('#viewbtn').hidden = true;
+  $('#dock').hidden = true;
   $('#screen').innerHTML = `<div class="card glass">
-    <div class="sub">三十天过去了</div>
-    <div class="score ${r.score < 0 ? 'neg' : ''}">${yuan(r.score)}</div>
-    <div class="rank">${r.title}</div>
-    <p style="color:#cbd5e1">${r.line}</p>
+    <div class="scorecard ${r.score < 0 ? 'neg' : ''}">
+      <small>${heroName() === '你' ? '' : heroName() + ' · '}深圳 ${CONFIG.days} 天 · 净资产</small>
+      <div class="score">${yuan(r.score)}</div>
+      <div class="rank">${r.title}</div>
+      <div class="facts"><span>现金 ${yuan(s.cash)}</span><span>存款 ${yuan(s.bank)}</span><span>欠款 ${yuan(s.debt)}</span><span>人情 ${s.favor > 0 ? '+' : ''}${s.favor}</span></div>
+    </div>
+    <p style="color:var(--text);margin-top:12px">${r.line}</p>
     <div class="epilogue">${epilogue(s).map(t => `<p>${t}</p>`).join('')}</div>
-    <p style="color:#94a3b8">${isBest ? '新的最佳成绩！' : '历史最佳：' + yuan(prev)}</p>
+    <div class="best">${isBest ? '新的最佳成绩' : '历史最佳 ' + yuan(prev)}</div>
     <button class="primary" id="start">再来一局</button>
   </div>`;
   $('#screen').hidden = false;
-  $('#start').onclick = startGame;
+  $('#start').onclick = startScreen;
 }
 
 startScreen();

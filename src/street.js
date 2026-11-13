@@ -38,6 +38,7 @@ export function createStreet(renderer, el, handlers) {
 
   let active = false, world = null, spots = [], pickables = [], walkers = [], ticks = [];
   let near = null, pending = null, target = null, xMax = 32;
+  let chase = null, nearW = null; // 正要走过去搭话的路人、离得最近的路人
   const pos = new THREE.Vector3(); // 玩家脚下的位置
   // 镜头绕着主角转：az 是方位角（镜头在主角的 (sin az, cos az) 方向，0 = 正南），elev 是仰角，dist 是距离
   let az = -Math.PI / 4, elev = 0.72, dist = 31;
@@ -57,7 +58,7 @@ export function createStreet(renderer, el, handlers) {
   }
 
   function build(d, idx, defs) {
-    if (world) { scene.remove(world); dispose(world); }
+    if (world) { scene.remove(world); dispose(world); player = null; }
     world = new THREE.Group();
     scene.add(world);
     spots = []; pickables = []; walkers = []; ticks = []; cuts = []; cutKey = ''; labels = [];
@@ -262,20 +263,19 @@ export function createStreet(renderer, el, handlers) {
         build: 0.9 + r() * 0.3,
       });
       const dir = r() < 0.5 ? -1 : 1;
-      f.position.set(-34 + r() * 60, 0, -3.6 + r() * 7.8);
+      f.position.set(X_MIN - 1 + r() * (xMax - X_MIN), 0, -3.4 + r() * 7.2);
       f.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       f.userData.noCut = true;
       world.add(f);
-      walkers.push({ f, dir, speed: 1.2 + r() * 1.4, phase: r() * 6 });
+      const w = { i, f, dir, speed: 1.2 + r() * 1.4, phase: r() * 6, talking: false, mark: null };
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.1, 1.3), new THREE.MeshBasicMaterial({ visible: false }));
+      hit.position.y = 1.05; hit.userData.walker = w;
+      f.add(hit); pickables.push(hit);
+      walkers.push(w);
+      setMark(w, handlers.walkerMark ? handlers.walkerMark(i) : null);
     }
 
-    // 主角：橙色上衣、背包，脚下一圈光环方便在人群里找到
-    player = makeFigure({ shirt: 0xff5a1f, pants: 0x1f2937, pack: 0x2563eb, scale: 1.2 });
-    const halo = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.66, 28), new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 }));
-    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.05;
-    player.add(halo);
-    player.userData.noCut = true;
-    world.add(player);
+    makePlayer();
 
     // 记下哪些东西在街的哪一侧、够不够高大，镜头转到那一侧时把它们藏起来
     world.updateMatrixWorld(true);
@@ -299,6 +299,37 @@ export function createStreet(renderer, el, handlers) {
   }
 
   // 切换视角时要跟着变的东西：视野、雾、名字牌大小、主角是否可见
+  // 路人头顶的标记（💬 有消息、❗ 有事相求），没有就传 null
+  function setMark(w, icon) {
+    if (w.mark) { w.f.remove(w.mark); w.mark.material.map.dispose(); w.mark.material.dispose(); w.mark = null; }
+    if (!icon) return;
+    w.mark = labelSprite(icon, { bg: icon === '❗' ? 'rgba(220,38,38,.92)' : 'rgba(245,158,11,.95)', size: 30 });
+    w.mark.scale.multiplyScalar(0.36);
+    w.mark.position.y = 2.25;
+    w.f.add(w.mark);
+  }
+  const faceEachOther = w => {
+    const a = Math.atan2(w.f.position.x - pos.x, w.f.position.z - pos.z);
+    faceTo = a; turnTo = a + Math.PI; w.f.rotation.y = a + Math.PI;
+  };
+  function talkTo(w) {
+    chase = null; target = null; marker.visible = false;
+    w.talking = true;
+    faceEachOther(w);
+    handlers.onTalk(w.i);
+  }
+  // 主角：形象由玩家自己定，脚下一圈光环方便在人群里找到
+  function makePlayer() {
+    if (player) { world.remove(player); dispose(player); }
+    player = makeFigure(handlers.playerLook ? handlers.playerLook() : { shirt: 0xff5a1f, pants: 0x1f2937, pack: 0x2563eb, scale: 1.2 });
+    const halo = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.66, 28), new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.05;
+    player.add(halo);
+    player.userData.noCut = true;
+    player.position.copy(pos); player.rotation.y = face;
+    player.visible = view !== 'fp';
+    world.add(player);
+  }
   function applyView() {
     const fp = view === 'fp', tall = vw < vh;
     camera.fov = fp ? (tall ? 78 : 66) : (tall ? 50 : 38);
@@ -337,6 +368,11 @@ export function createStreet(renderer, el, handlers) {
     ndc.set(((e.clientX - rc.left) / rc.width) * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObjects(pickables)[0];
+    if (hit && hit.object.userData.walker) { // 点中路人：他站住等你，你走过去搭话
+      chase = hit.object.userData.walker; pending = null; target = null; marker.visible = false;
+      return;
+    }
+    chase = null;
     if (hit) { // 点中档口：走过去，到了自动打开
       pending = hit.object.userData.spot;
       target = pending.stand.clone();
@@ -395,6 +431,10 @@ export function createStreet(renderer, el, handlers) {
       e.preventDefault();
       faceTo = near.faceYaw; turnTo = near.faceYaw + Math.PI;
       handlers.onInteract(near);
+    } else if ((key === 'e' || key === 'enter' || key === ' ') && nearW && !nearW.talking && handlers.canMove()) {
+      if (e.target.tagName === 'BUTTON') return;
+      e.preventDefault();
+      talkTo(nearW);
     }
   });
   window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
@@ -411,9 +451,13 @@ export function createStreet(renderer, el, handlers) {
     if (turn) { if (fp) { yaw = wrap(yaw - turn * TURN * dt); turnTo = null; } else az = wrap(az + turn * TURN * dt); }
     let dx = 0, dz = 0, step = SPEED * dt;
     if (right || fwd) {
-      target = null; pending = null; marker.visible = false; turnTo = null;
+      target = null; pending = null; chase = null; marker.visible = false; turnTo = null;
       const len = Math.hypot(right, fwd), sn = Math.sin(heading), cs = Math.cos(heading);
       dx = (-sn * fwd + cs * right) / len; dz = (-cs * fwd - sn * right) / len;
+    } else if (chase) {
+      const ox = chase.f.position.x - pos.x, oz = chase.f.position.z - pos.z, d2 = Math.hypot(ox, oz);
+      if (d2 < 1.7) talkTo(chase);
+      else { dx = ox / d2; dz = oz / d2; if (fp && !drag) turnTo = Math.atan2(-dx, -dz); }
     } else if (target) {
       const ox = target.x - pos.x, oz = target.z - pos.z, d2 = Math.hypot(ox, oz);
       if (d2 < 0.12) {
@@ -447,9 +491,18 @@ export function createStreet(renderer, el, handlers) {
     look.z += (pos.z - look.z) * Math.min(1, dt * 6);
     placeCamera();
 
+    let bestW = null, bestWD = 2.4;
     for (const w of walkers) {
+      const wd = Math.hypot(w.f.position.x - pos.x, w.f.position.z - pos.z);
+      if (wd < bestWD) { bestW = w; bestWD = wd; }
+      if (w.talking || w === chase) { // 站住，面朝你
+        if (w === chase) w.f.rotation.y = Math.atan2(pos.x - w.f.position.x, pos.z - w.f.position.z);
+        animateFigure(w.f, 0, false);
+        continue;
+      }
       w.f.position.x += w.dir * w.speed * dt;
-      if (w.f.position.x > xMax + 4 || w.f.position.x < -36) { w.dir *= -1; w.f.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2; }
+      const turn = w.f.position.x > xMax - 1 ? -1 : w.f.position.x < X_MIN - 2 ? 1 : 0; // 走到街头就掉头
+      if (turn && turn !== w.dir) { w.dir = turn; w.f.rotation.y = turn > 0 ? Math.PI / 2 : -Math.PI / 2; }
       // 路人会绕开玩家，不从镜头里穿过去
       const ax = w.f.position.x - pos.x, az = w.f.position.z - pos.z;
       if (Math.abs(ax) < 3 && Math.abs(az) < 1.3) w.f.position.z = THREE.MathUtils.clamp(w.f.position.z + (az >= 0 ? 1 : -1) * 3 * dt, Z_MIN - 0.3, Z_MAX + 0.3);
@@ -463,12 +516,22 @@ export function createStreet(renderer, el, handlers) {
       if (dd < bestD) { best = s; bestD = dd; }
     }
     if (best !== near) { near = best; handlers.onNear(near); }
+    if (bestW !== nearW) { nearW = bestW; if (handlers.onNearWalker) handlers.onNearWalker(nearW ? nearW.i : null); }
   }
 
   return {
     scene, camera, update,
     resize(w, h) { vw = w; vh = h; applyView(); },
     get view() { return view; },
+    refreshPlayer() { if (world) makePlayer(); },
+    // 聊完了：路人接着走，头顶的标记换成新的（通常是去掉）
+    releaseWalker(i, icon = null) {
+      const w = walkers[i];
+      if (!w) return;
+      w.talking = false;
+      w.f.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      setMark(w, icon);
+    },
     setView(v) {
       if (v === view) return;
       view = v;
@@ -486,7 +549,7 @@ export function createStreet(renderer, el, handlers) {
       face = Math.PI / 2; faceTo = null;
       yaw = -Math.PI / 2 + 0.12; pitch = 0; turnTo = null; bob = 0;
       applyView();
-      target = null; pending = null; marker.visible = false;
+      target = null; pending = null; chase = null; nearW = null; marker.visible = false;
       near = null;
       player.position.copy(pos); player.rotation.y = face;
       placeCamera(true);

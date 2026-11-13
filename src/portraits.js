@@ -125,8 +125,26 @@ function body(L) {
   return s;
 }
 
-export function portrait(id, mood = 'plain') {
-  const L = LOOKS[id];
+// 路人：按种子拼一张不重样的脸
+const SKINS = ['#ecbd96', '#e3ad84', '#d6a179', '#c98f66', '#f0c8a4'];
+const HAIRS = ['#1c1714', '#2a211d', '#3b2a22', '#5a4636', '#8a8f94'];
+const TOPS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#14b8a6', '#64748b', '#ec4899', '#e5e7eb'];
+const BGS = [['#5b86c4', '#27406b'], ['#4fa3a0', '#1d4a48'], ['#8a5aa8', '#3a2350'], ['#c9803a', '#5a3413'], ['#51637a', '#1e2835'], ['#4d6b58', '#22332a']];
+function passerLook(seed) {
+  let x = (seed * 2654435761) >>> 0;
+  const r = n => { x = (Math.imul(x ^ (x >>> 15), 2246822519) + 0x9e3779b9) >>> 0; return x % n; };
+  const style = ['short', 'fringe', 'buzz', 'bun', 'curly', 'receding'][r(6)], hair = HAIRS[r(HAIRS.length)];
+  const woman = style === 'bun' || style === 'curly';
+  return {
+    bg: BGS[r(BGS.length)], skin: SKINS[r(SKINS.length)], hair, style, jaw: 24 + r(16), w: 40 + r(6),
+    shirt: TOPS[r(TOPS.length)], collar: r(2) ? 'tee' : 'polo', brow: hair, browW: woman ? 3.5 : 4.5 + r(3),
+    glasses: r(5) === 0, blush: r(3) === 0, wrinkles: style === 'receding' || r(5) === 0,
+    lips: woman ? '#c0392b' : null, earrings: woman && r(2) ? '#fbbf24' : null, straps: r(4) === 0 ? '#475569' : null,
+  };
+}
+
+export function portrait(id, mood = 'plain', seed = 0) {
+  const L = id === 'passer' ? passerLook(seed + 1) : LOOKS[id];
   if (!L) return '';
   if (!['plain', 'smile', 'angry', 'sad'].includes(mood)) mood = 'plain';
   const w = L.w, l = 100 - w, r = 100 + w, j = L.jaw;

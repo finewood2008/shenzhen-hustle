@@ -40,6 +40,7 @@ export const CAST = {
   landlord: { name: '房东阿姨' },
   auntie: { name: '肠粉摊阿姨' },
   officer: { name: '市场协管' },
+  passer: { name: '路人' },
 };
 
 export const SCENES = [
@@ -250,6 +251,101 @@ const OFFER_SCENE = {
   ],
 };
 
+// ---------- 路人 ----------
+// 街上有 WALKERS 个路人。每天每个区里：一个消息灵通的（tip），多半还有一个有事相求的（ask），其余是闲聊（chat）。
+// 用天数和区算出来，不消耗随机数，所以同一天回头看还是同一个人。
+export const WALKERS = 12;
+const mix = (a, b, c = 0) => { let h = (a * 73856093) ^ (b * 19349663) ^ (c * 83492791); h = Math.imul(h ^ (h >>> 13), 0x5bd1e995); return (h ^ (h >>> 15)) >>> 0; };
+const locIdx = s => DISTRICTS.findIndex(d => d.id === s.loc);
+export function walkerKind(s, i) {
+  if (s.talked[i]) return 'done';
+  const h = mix(s.day, locIdx(s)), tip = h % WALKERS, ask = (tip + 1 + (h >>> 8) % (WALKERS - 1)) % WALKERS;
+  if (i === tip && s.day < CONFIG.days) return 'tip';
+  if (i === ask && (h >>> 4) % 10 < 7) return 'ask';
+  return 'chat';
+}
+
+const SMALL_TALK = {
+  huaqiangbei: ['别在一楼买，上三楼同样的货便宜一截。', '以前这里一米柜台能养活一家人，现在都搬到网上去了。', '修手机？往里走第二家，手艺最老。'],
+  futian: ['这边的楼，灯是通宵不灭的。', '中午别来这吃饭，一碗面三十八。', '刚面完试，也不知道有没有戏。'],
+  luohu: ['过关的队今天排到天桥上去了。', '以前带货的都从这走，热闹得很。', '火车站那头的肠粉，三十年没变过味。'],
+  dongmen: ['东门的东西，开口先砍一半。', '我小时候这还是骑楼老街，现在全是奶茶店。', '周末别来，人挤人。'],
+  keji: ['刚下班。哦不对，是刚吃完饭回去加班。', '这栋楼的灯，凌晨两点还亮着一大半。', '我们组上个月刚发了新品，卖疯了。'],
+  shekou: ['晚上海边风大，记得多带件衣服。', '这一片老外多，东西卖得上价。', '以前这是码头，我爸就在这卸过货。'],
+  baoan: ['厂里又招人了，包吃包住。', '今天总算不用加班。', '我们那条线一天要出两万个灯。'],
+  longhua: ['这的房租又涨了，握手楼都要一千五了。', '楼下那家隆江猪脚饭，深夜两点还开着。', '搬来三年，还没见过对门邻居长什么样。'],
+  dafen: ['一幅《向日葵》，我师傅一天能画八张。', '现在都画原创了，临摹不好卖。', '画框比画还贵，你信不信。'],
+  yantian: ['今天又到了三条大船。', '码头不等人，货到了就得拉走。', '海鲜街往东走，晚上才热闹。'],
+};
+const COMMON_TALK = ['深圳这天气，说下雨就下雨。', '来了就是深圳人嘛。', '时间就是金钱，我先走了啊。', '你也是做生意的？看着就像。'];
+
+// 明天最值得跑一趟的行情（不重复地图上已有的那条小道消息）
+function bestTip(s) {
+  let best = null;
+  for (const d of DISTRICTS) {
+    if (d.id === s.loc) continue;
+    for (const g of GOODS) {
+      const p = s.forecast[d.id][g.id];
+      if (!p || (s.rumor.district === d.id && s.rumor.good === g.id)) continue;
+      const k = (p - g.min) / (g.max - g.min), score = Math.abs(k - 0.5) * Math.sqrt(g.max);
+      if (!best || score > best.score) best = { score, d, g, cheap: k < 0.5 };
+    }
+  }
+  return best;
+}
+
+const ASKS = [
+  [ { who: 'passer', text: '不好意思，请问地铁站往哪边走？我转了两圈了。', choices: [
+      { label: '停下来仔细指给他', effect: s => favor(s, 1), to: 'y' }, { label: '“我也不熟。”', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '太谢谢了！深圳人真热心。', end: true },
+    { k: 'n', who: 'passer', text: '哦，好，那我再问问别人。', end: true } ],
+  [ { who: 'passer', mood: 'sad', text: '手机没电了……能不能借你的打个电话？我跟家里说一声就还你。', choices: [
+      { label: '把手机递过去', effect: s => favor(s, 1), to: 'y' }, { label: '“不太方便。”', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '“妈，我到了，都好，别担心。”……谢谢你啊，真的。', end: true },
+    { k: 'n', who: 'passer', text: '没事没事，理解。', end: true } ],
+  [ { who: 'passer', text: '老板跑路了，工资拿货抵的。这三副蓝牙耳机，一百五你全拿走，行不行？', choices: [
+      { label: '买下（¥150）', ok: s => s.cash >= 150 && free(s) >= 3, why: '钱或背包不够', effect: s => { s.cash -= 150; return '现金 -¥150 · 蓝牙耳机 +' + give(s, 'earbuds', 3); }, to: 'y' },
+      { label: '“不要，谢谢。”', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '谢了，总算能凑够回家的车票。', end: true },
+    { k: 'n', who: 'passer', mood: 'sad', text: '唉，行吧。', end: true } ],
+  [ { who: 'passer', text: '帮我把这沓传单发完行吗？给你五十。我赶着去面试，真来不及了。', choices: [
+      { label: '接过传单', effect: s => { s.cash += 50; return '现金 +¥50 · ' + hp(s, -3); }, to: 'y' }, { label: '“我也赶时间。”', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '救命了！祝你发财！', end: true },
+    { k: 'n', who: 'passer', text: '好吧，我边跑边发。', end: true } ],
+  [ { who: 'passer', text: '我们在给山区小学募书。十块二十块都行，一本书的钱。', choices: [
+      { label: '捐 ¥20', ok: s => s.cash >= 20, why: '现金不足 ¥20', effect: s => { s.cash -= 20; return '现金 -¥20 · ' + favor(s, 1); }, to: 'y' },
+      { label: '摆摆手走开', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '谢谢！这是收据，书上会写你的名字。', end: true },
+    { k: 'n', who: 'passer', text: '没关系，打扰了。', end: true } ],
+  [ { who: 'passer', text: '这个充电宝我用不上了，才拆封的。五十块，两个都给你。', choices: [
+      { label: '买下（¥50）', ok: s => s.cash >= 50 && free(s) >= 2, why: '钱或背包不够', effect: s => { s.cash -= 50; return '现金 -¥50 · 充电宝 +' + give(s, 'powerbank', 2); }, to: 'y' },
+      { label: '“不用了。”', to: 'n' } ] },
+    { k: 'y', who: 'passer', mood: 'smile', text: '爽快，拿好。', end: true },
+    { k: 'n', who: 'passer', text: '行，那我挂网上卖。', end: true } ],
+];
+
+// 和第 i 个路人说话时播放的场景；今天已经聊过就返回 null
+export function walkerScene(s, i) {
+  const kind = walkerKind(s, i);
+  if (kind === 'done' || s.over) return null;
+  const h = mix(s.day, locIdx(s), i + 1);
+  let lines;
+  if (kind === 'tip') {
+    const t = bestTip(s);
+    lines = t ? [
+      { who: 'passer', text: '你是跑货的吧？看你背着包就知道。' },
+      { who: 'passer', mood: 'smile', text: `跟你说个事，${t.d.name}那边，明天${t.g.name}${t.cheap ? '有人清仓，便宜得很' : '有人高价收，缺得厉害'}。信不信由你。`,
+        effect: () => `线索：明天${t.d.name}的${t.g.name}${t.cheap ? '便宜' : '走俏'}` },
+    ] : [{ who: 'passer', text: '最近行情平平，没什么可说的。' }];
+  } else if (kind === 'ask') {
+    lines = ASKS[h % ASKS.length];
+  } else {
+    const pool = (SMALL_TALK[s.loc] || []).concat(COMMON_TALK);
+    lines = [{ who: 'passer', text: pool[h % pool.length] }];
+  }
+  return { id: 'walker', walker: i, kind, lines };
+}
+
 // 找出现在该触发的场景：先是主线（每个一局只触发一次），再是这次换区抽到的随机事件
 export function nextScene(s) {
   if (s.over) return null;
@@ -260,7 +356,9 @@ export function nextScene(s) {
 
 // 逐步播放一个场景。界面层调用 current() 显示，next() / choose(i) 推进。
 export function play(s, scene) {
-  if (scene.event) s.pendingEvent = null; else if (!scene.offer) s.seen[scene.id] = true;
+  if (scene.event) s.pendingEvent = null;
+  else if (scene.walker != null) s.talked[scene.walker] = true;
+  else if (!scene.offer) s.seen[scene.id] = true;
   const lines = scene.lines;
   let i = 0, done = false;
   const jump = (line, choice) => {

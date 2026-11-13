@@ -53,7 +53,7 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     health: 100, capacity: CONFIG.capacity, storageLevel: 0, inv: {},
     loc: CONFIG.startLoc, market: null, forecast: null, rumor: null, over: false,
     favor: 0, flags: {}, seen: {}, pendingEvent: null,
-    orders: [], offer: null, haggled: {}, // 已接的订单、等你答复的订单、今天砍过价的档口
+    orders: [], offer: null, haggled: {}, talked: {}, // 已接的订单、等你答复的订单、今天砍过价的档口
     // 剧情：人情值、剧情标记、已触发的场景
   };
   s.market = genMarket(s, s.loc, null);
@@ -188,7 +188,7 @@ export function travel(s, to) {
   s.bank = Math.floor(s.bank * (1 + CONFIG.bankRate));
   s.loc = to;
   s.market = s.forecast[to];
-  s.haggled = {};
+  s.haggled = {}; s.talked = {};
   const res = { rumorHit: s.rumor.district === to ? s.rumor : null, expired: s.orders.filter(o => o.deadline < s.day) };
   if (res.expired.length) { // 过期的订单作废，丢人情
     s.orders = s.orders.filter(o => o.deadline >= s.day);

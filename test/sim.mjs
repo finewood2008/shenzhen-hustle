@@ -2,16 +2,35 @@
 import assert from 'node:assert';
 import * as L from '../src/logic.js';
 import { GOODS, DISTRICTS, CONFIG, STALLS } from '../src/content.js';
-import { SCENES, EVENT_SCENES, CAST, nextScene, play, epilogue } from '../src/story.js';
+import { SCENES, EVENT_SCENES, CAST, WALKERS, walkerKind, walkerScene, nextScene, play, epilogue } from '../src/story.js';
 
 const seenScenes = new Set();
 const tally = { delivered: 0, expired: 0, haggleWin: 0, haggleLose: 0, borrowed: 0 };
 // 把当前该触发的剧情都走完，选项按种子轮流选
+const kinds = { chat: 0, tip: 0, ask: 0 };
+// 和街上的每个路人都聊一遍：每天正好一个线索、最多一个求助，聊过就不能再聊
+function talkToEveryone(s, seed) {
+  const ks = Array.from({ length: WALKERS }, (_, i) => walkerKind(s, i));
+  assert(ks.filter(k => k === 'tip').length === (L.isLastDay(s) ? 0 : 1) && ks.filter(k => k === 'ask').length <= 1, ks.join());
+  for (let i = 0; i < WALKERS; i++) {
+    const sc = walkerScene(s, i);
+    assert(sc && sc.kind === ks[i]);
+    kinds[sc.kind]++;
+    playScene(s, sc, seed + i);
+    assert.equal(walkerScene(s, i), null);
+    assert.equal(walkerKind(s, i), 'done');
+  }
+}
 function runStory(s, seed) {
   let sc, n = 0;
   while ((sc = nextScene(s))) {
     assert(++n < 10, 'story must settle');
     seenScenes.add(sc.id);
+    playScene(s, sc, seed);
+  }
+}
+function playScene(s, sc, seed) {
+  {
     const p = play(s, sc);
     let steps = 0;
     while (!p.done) {
@@ -48,6 +67,7 @@ for (let seed = 1; seed <= 500; seed++) {
       if (L.canDeliver(s, o)) { const cash = s.cash; assert(L.deliver(s, i) > 0 && s.cash > cash); tally.delivered++; }
     }
     // 砍价：每个档口试一次，第二次必须被拒绝
+    if (seed % 3 === 0) talkToEveryone(s, seed);
     if (seed % 2) for (const st of STALLS) {
       const res = L.haggle(s, st.id, st.goods);
       if (res) { tally[res === 'win' ? 'haggleWin' : 'haggleLose']++; assert.equal(L.haggle(s, st.id, st.goods), null); }
@@ -87,7 +107,8 @@ assert.deepEqual(L.newGame(42), L.newGame(42));
 
 scores.sort((a, b) => a - b);
 const q = p => Math.round(scores[Math.floor(p * (scores.length - 1))]);
+assert(kinds.chat > 500 && kinds.tip > 500 && kinds.ask > 300, JSON.stringify(kinds));
 assert(tally.delivered > 20 && tally.expired > 20 && tally.haggleWin > 20 && tally.haggleLose > 20 && tally.borrowed > 5, JSON.stringify(tally));
 assert.equal(seenScenes.size, SCENES.length + EVENT_SCENES.length + 1, 'every scene should be reachable: ' + [...seenScenes]);
-console.log('ok', scores.length, 'games', tally);
+console.log('ok', scores.length, 'games', tally, kinds);
 console.log({ min: q(0), p25: q(0.25), median: q(0.5), p75: q(0.75), max: q(1) });

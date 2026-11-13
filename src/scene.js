@@ -284,6 +284,8 @@ export function createScene(container, districts, handlers) {
       el.style.cursor = 'grab';
     },
     get streetView() { return street.view; },
+    refreshPlayer() { street.refreshPlayer(); },
+    releaseWalker(i, icon) { street.releaseWalker(i, icon); },
     setStreetView(v) { street.setView(v); },
     enterStreet(district, idx, spots, startX, startYaw) { street.enter(district, idx, spots, startX, startYaw); this.setMode('street'); },
     // rumor: { district, text, up } 或 null
