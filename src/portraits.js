@@ -14,6 +14,8 @@ const LOOKS = {
     shirt: '#7c3aed', collar: 'tee', dots: '#f0abfc', lips: '#c0392b', earrings: '#34d399', wrinkles: true, brow: '#3b2a22', browW: 3.5 },
   auntie: { bg: ['#4fa3a0', '#1d4a48'], skin: '#e3ad84', hair: '#2a211d', style: 'bun', jaw: 32, w: 43,
     shirt: '#3b82c4', collar: 'tee', apron: true, lips: '#b5533c', blush: true, wrinkles: true, brow: '#2a211d', browW: 3.5 },
+  director: { bg: ['#6b4fb0', '#241848'], skin: '#ecbd96', hair: '#2a211d', style: 'fringe', jaw: 26, w: 40,
+    shirt: '#111827', collar: 'tee', glasses: true, brow: '#2a211d', browW: 4 },
   officer: { bg: ['#51637a', '#1e2835'], skin: '#d2a07a', hair: '#1a1614', style: 'cap', cap: '#1e3a5f', jaw: 34, w: 43,
     shirt: '#9cc3e6', collar: 'polo', badge: true, brow: '#1a1614', browW: 5 },
 };

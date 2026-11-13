@@ -3,7 +3,7 @@
 import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
-import { CAST, nextScene, play, epilogue, walkerKind, walkerScene } from './story.js';
+import { CAST, nextScene, play, epilogue, walkerKind, walkerScene, shadyScene } from './story.js';
 import { portrait, heroPortrait } from './portraits.js';
 import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES, PRESETS, NAMES } from './settings.js';
 
@@ -61,6 +61,8 @@ function interact(spot) {
   if (spot.kind === 'metro') {
     if (L.isLastDay(s)) { toast('今天是最后一天，把货卖掉就结算吧。'); return; }
     showMap();
+  } else if (spot.kind === 'stall' && s.shady && s.shady.state === 'offer' && spot.goods.includes(s.shady.good) && s.market[s.shady.good]) {
+    startScene(shadyScene(s), () => { activeSpot = spot; render(); }); // 老板先问你要不要烧心货
   } else {
     activeSpot = spot;
     render();
@@ -92,14 +94,15 @@ function goodRow(g) {
   if (it) {
     const avg = it.cost / it.qty;
     const diff = p ? (p >= avg ? `<em class="up">赚 ${yuan((p - avg) * it.qty)}</em>` : `<em class="down">亏 ${yuan((avg - p) * it.qty)}</em>`) : '';
-    hold = `<div class="hold">持有 ${it.qty} · 均价 ${yuan(avg)} ${diff}</div>`;
+    const bad = L.badQty(s, g.id);
+    hold = `<div class="hold">持有 ${it.qty}${bad ? `（${bad} 件烧心货）` : ''} · 均价 ${yuan(avg)} ${diff}</div>`;
   }
   return `<div class="row ${p || it ? '' : 'off'}">
     <div class="icon">${g.icon}</div>
     <div><div class="name">${g.name}</div>${hold}</div>
     ${priceHtml}
     <div class="acts">
-      <button class="buy" data-buy="${g.id}" ${p && L.maxBuy(s, g.id) > 0 ? '' : 'disabled'}>买</button>
+      <button class="buy" data-buy="${g.id}" ${p && L.maxBuy(s, g.id) > 0 ? '' : 'disabled'}>${p && L.shadyOpen(s, g.id) ? '七折' : '买'}</button>
       <button class="sell" data-sell="${g.id}" ${p && it ? '' : 'disabled'}>卖</button>
     </div>
   </div>`;
@@ -368,9 +371,9 @@ $('#panel').addEventListener('click', e => {
   if (!b || !playing()) return;
   const { buy, sell, act } = b.dataset;
   if (buy) {
-    const g = G[buy], p = s.market[buy];
+    const g = G[buy], p = L.buyPrice(s, buy), shady = L.shadyOpen(s, buy);
     askAmount({
-      title: `买入 ${g.name}`, hint: `单价 ${yuan(p)}，最多能买 ${L.maxBuy(s, buy)}`, max: L.maxBuy(s, buy),
+      title: shady ? `买入 ${g.name}（烧心货）` : `买入 ${g.name}`, hint: `${shady ? '七折价' : '单价'} ${yuan(p)}，最多能买 ${L.maxBuy(s, buy)}`, max: L.maxBuy(s, buy),
       total: n => `花费 ${yuan(n * p)}`,
       onOk: n => { if (L.buy(s, buy, n)) say(`买入 ${g.name} ×${n}，花了 ${yuan(n * p)}`); },
     });
@@ -379,7 +382,15 @@ $('#panel').addEventListener('click', e => {
     askAmount({
       title: `卖出 ${g.name}`, hint: `单价 ${yuan(p)}，持有 ${it.qty}，均价 ${yuan(avg)}`, max: it.qty,
       total: n => `收入 ${yuan(n * p)}（${p >= avg ? '赚' : '亏'} ${yuan(Math.abs(p - avg) * n)}）`,
-      onOk: n => { if (L.sell(s, sell, n)) say(`卖出 ${g.name} ×${n}，收入 ${yuan(n * p)}`); },
+      onOk: n => {
+        const r = L.sell(s, sell, n);
+        if (!r) return;
+        if (r.caught) {
+          const t = `“这批货有问题！”${r.bad} 件${g.name}被当场退货，钱没收到，货也废了。人情 -1`;
+          say(t); toast(t, 4200);
+          if (n > r.bad) say(`其余 ${n - r.bad} 件卖出，收入 ${yuan((n - r.bad) * p)}`);
+        } else say(`卖出 ${g.name} ×${n}，收入 ${yuan(n * p)}${r.bad ? '（烧心货混过去了）' : ''}`);
+      },
     });
   } else if (act === 'deposit') {
     askAmount({ title: '存款', hint: `现金 ${yuan(s.cash)}`, max: s.cash, total: n => `存入 ${yuan(n)}`,
@@ -399,7 +410,7 @@ $('#panel').addEventListener('click', e => {
   } else if (act === 'haggle') {
     const res = L.haggle(s, activeSpot.id, activeSpot.goods);
     if (res) {
-      const t = res === 'win' ? '“行行行，算你会讲。今天给你这个价。”' : '“不诚心买就别乱还价。今天就这个价，爱要不要。”';
+      const t = res === 'win' ? '“行，老主顾的规矩：价让你一点，料不能减。”' : '“价钱能谈，规矩不能坏。今天就这个价。”';
       say(res === 'win' ? '砍价成功，这个档口今天便宜 12%。' : '砍价失败，这个档口今天贵了 6%。');
       toast(t, 3200);
     }
@@ -583,9 +594,11 @@ $('#orders').addEventListener('click', e => {
   const b = e.target.closest('[data-deliver]');
   if (!b || !playing()) return;
   const o = s.orders[Number(b.dataset.deliver)];
-  const got = L.deliver(s, Number(b.dataset.deliver));
-  if (!got) return;
-  const t = `交货：${G[o.good].name} ×${o.qty}，收到 ${yuan(got)} · 人情 +1`;
+  const r = L.deliver(s, Number(b.dataset.deliver));
+  if (!r) return;
+  const t = r.bad
+    ? `交货：${G[o.good].name} ×${o.qty}，其中 ${r.bad} 件烧心货被验了出来，只收到 ${yuan(r.got)} · 人情 -1`
+    : `交货：${G[o.good].name} ×${o.qty}，收到 ${yuan(r.got)} · 人情 +1`;
   say(t, 'rumor'); toast(t, 3600);
   render();
 });

@@ -53,7 +53,9 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     health: 100, capacity: CONFIG.capacity, storageLevel: 0, inv: {},
     loc: CONFIG.startLoc, market: null, forecast: null, rumor: null, over: false,
     favor: 0, flags: {}, seen: {}, pendingEvent: null,
-    orders: [], offer: null, haggled: {}, talked: {}, // 已接的订单、等你答复的订单、今天砍过价的档口
+    orders: [], offer: null, haggled: {}, talked: {},
+    shady: null, // 今天的烧心货：{ good, state: 'offer' | 'open' | 'refused' }
+    // 已接的订单、等你答复的订单、今天砍过价的档口
     // 剧情：人情值、剧情标记、已触发的场景
   };
   s.market = genMarket(s, s.loc, null);
@@ -66,17 +68,23 @@ export const free = s => s.capacity - used(s);
 export const isLastDay = s => s.day >= CONFIG.days;
 export const netWorth = s => s.cash + s.bank - s.debt;
 
+// 烧心货：答应了老板之后，这样货今天按七折进，但买到的都是来路不明的货
+export const shadyOpen = (s, id) => !!s.shady && s.shady.state === 'open' && s.shady.good === id;
+export const buyPrice = (s, id) => (shadyOpen(s, id) ? Math.max(1, Math.round(s.market[id] * CONFIG.shadyPrice)) : s.market[id]);
+export const badQty = (s, id) => (s.inv[id] ? Math.min(s.inv[id].bad || 0, s.inv[id].qty) : 0);
+
 export function maxBuy(s, id) {
-  const p = s.market[id];
+  const p = s.market[id] && buyPrice(s, id);
   return p ? Math.max(0, Math.min(Math.floor(s.cash / p), free(s))) : 0;
 }
 
 export function buy(s, id, qty) {
   qty = Math.floor(qty);
   if (s.over || !(qty > 0) || qty > maxBuy(s, id)) return false;
-  const cost = s.market[id] * qty;
+  const cost = buyPrice(s, id) * qty;
   s.cash -= cost;
   const it = s.inv[id] || (s.inv[id] = { qty: 0, cost: 0 });
+  if (shadyOpen(s, id)) it.bad = badQty(s, id) + qty;
   it.qty += qty; it.cost += cost;
   return true;
 }
@@ -85,11 +93,14 @@ export function sell(s, id, qty) {
   qty = Math.floor(qty);
   const it = s.inv[id];
   if (s.over || !it || !s.market[id] || !(qty > 0) || qty > it.qty) return false;
-  s.cash += s.market[id] * qty;
+  // 烧心货先出手；有四成机会被当场退货：这部分钱收不到，货也没了，还丢人情
+  const bad = Math.min(badQty(s, id), qty), caught = bad > 0 && rnd(s) < CONFIG.shadyCatch;
+  s.cash += s.market[id] * (caught ? qty - bad : qty);
+  if (caught) s.favor -= 1;
   it.cost -= Math.round(it.cost * qty / it.qty);
-  it.qty -= qty;
+  it.qty -= qty; it.bad = badQty(s, id) - bad;
   if (it.qty <= 0) delete s.inv[id];
-  return true;
+  return { bad, caught };
 }
 
 const here = (s, service) => DISTRICTS.find(d => d.id === s.loc).service === service;
@@ -154,13 +165,15 @@ export function deliver(s, i) {
   const o = s.orders[i];
   if (s.over || !o || !canDeliver(s, o)) return 0;
   const it = s.inv[o.good];
+  // 订单里混了烧心货一定会被验出来：那部分不给钱，人情不加反减
+  const bad = Math.min(badQty(s, o.good), o.qty), got = (o.qty - bad) * o.pay;
   it.cost -= Math.round(it.cost * o.qty / it.qty);
-  it.qty -= o.qty;
+  it.qty -= o.qty; it.bad = badQty(s, o.good) - bad;
   if (it.qty <= 0) delete s.inv[o.good];
   s.orders.splice(i, 1);
-  s.cash += o.qty * o.pay;
-  s.favor += 1;
-  return o.qty * o.pay;
+  s.cash += got;
+  s.favor += bad ? -1 : 1;
+  return { got, bad };
 }
 
 // 砍价：每个档口每天一次。成功则这个档口今天的价格全线下调，失败则上调。返回 'win' | 'lose' | null
@@ -196,6 +209,8 @@ export function travel(s, to) {
   }
   s.pendingEvent = rollEvent(s);
   s.offer = rollOffer(s);
+  const onSale = Object.keys(s.market);
+  s.shady = rnd(s) < CONFIG.shadyChance && onSale.length ? { good: helpers(s).pick(onSale), state: 'offer' } : null;
   rollForecast(s);
   return res;
 }

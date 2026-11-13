@@ -41,6 +41,7 @@ export const CAST = {
   auntie: { name: '肠粉摊阿姨' },
   officer: { name: '市场协管' },
   passer: { name: '路人' },
+  director: { name: '短剧导演' },
 };
 
 export const SCENES = [
@@ -152,6 +153,52 @@ export const SCENES = [
     ],
   },
 
+  // ---------- 规矩线：肠粉阿姨和对面的低价摊 ----------
+  {
+    id: 'rule_start',
+    when: s => s.day >= 4,
+    lines: [
+      { who: 'narr', text: '街角的肠粉摊前冷冷清清。马路对面新开了一家，门口排着长队，红底黄字写着：三块一碟。' },
+      { who: 'auntie', mood: 'sad', text: '后生，你看对面。三块钱，我的米浆钱都不止三块。老客都叫我也降价。' },
+      { who: 'auntie', text: '降不了。料减了，味道就不是那个味道了。贵是贵点，但吃了不烧心。', choices: [
+        { label: '在阿姨这坐下，照旧来一碟（¥5）', ok: s => s.cash >= 5, why: '现金不足 ¥5',
+          effect: s => { s.flags.rule = 'loyal'; s.flags.ruleDay = s.day; return pay(s, 5) + ' · ' + hp(s, 6) + ' · ' + favor(s, 1); }, to: 'loyal' },
+        { label: '站到摊前帮她吆喝一阵', effect: s => { s.flags.rule = 'helped'; s.flags.ruleDay = s.day; return hp(s, -3) + ' · ' + favor(s, 2); }, to: 'helped' },
+        { label: '“我去对面看看。”（¥3）', ok: s => s.cash >= 3, why: '现金不足 ¥3',
+          effect: s => { s.flags.rule = 'cheap'; s.flags.ruleDay = s.day; return pay(s, 3); }, to: 'cheap' },
+      ] },
+      { k: 'loyal', who: 'auntie', mood: 'smile', text: '好，给你多加个蛋。有人肯坐下来吃，这个摊就立得住。', end: true },
+      { k: 'helped', who: 'narr', text: '你扯着嗓子喊了半个钟头：“现磨米浆，现拉现卖！”真有几个人停下来了。' },
+      { who: 'auntie', mood: 'smile', text: '你这后生，比我儿子还上心。', end: true },
+      { k: 'cheap', who: 'narr', text: '三块钱的肠粉又咸又粘。半夜你被胃里的一团火烧醒，在床上翻到天亮。', effect: s => hp(s, -10) + '（烧心）', end: true },
+    ],
+  },
+  {
+    id: 'rule_end',
+    when: s => s.flags.rule && s.day >= s.flags.ruleDay + 5,
+    lines: [
+      { who: 'narr', text: '又路过那个街角。对面的铺子拉着卷闸门，贴了张“旺铺转让”。', to: s => (s.flags.rule === 'cheap' ? 'cheap' : 'good') },
+      { k: 'good', who: 'auntie', mood: 'smile', text: '看见没？料差的东西，骗得了一回骗不了三回。老客都回来了。' },
+      { who: 'auntie', mood: 'smile', text: '我妈传下来一句话：先把规矩立住，路才越走越宽。这盒你带着，不许给钱。',
+        effect: s => (s.flags.rule === 'helped' ? (s.cash += 200, '现金 +¥200（阿姨硬塞的吆喝钱） · ') : '') + hp(s, 15), end: true },
+      { k: 'cheap', who: 'auntie', text: '听讲你也去对面吃过？不怪你，三块钱谁不想试试。' },
+      { who: 'auntie', mood: 'smile', text: '坐下，这碟不收你钱。吃过烧心的，才晓得什么叫不烧心。', effect: s => hp(s, 8), end: true },
+    ],
+  },
+
+  // ---------- 彩蛋：酱板鸭寻仇 ----------
+  {
+    id: 'duck_revenge',
+    when: s => s.flags.duckDay && s.day >= s.flags.duckDay + 3,
+    lines: [
+      { who: 'narr', text: '一个人从人群里走出来，拦在你面前。风吹起他的外套，他的眼神像是等了你三年。' },
+      { who: 'passer', mood: 'angry', text: '那只酱板鸭，你还记得吗？' },
+      { who: 'me', text: '记得……挺好吃的。' },
+      { who: 'passer', mood: 'angry', text: '你吃了鸭，却没有配饭！一只酱板鸭的心意，你只领了一半！' },
+      { who: 'narr', text: '他郑重地把一盒白米饭放进你手里，转身消失在晚高峰的人潮中。饭还是热的。', effect: s => hp(s, 5) },
+    ],
+  },
+
   // ---------- 还清 ----------
   {
     id: 'bing_clear',
@@ -206,7 +253,7 @@ export const EVENT_SCENES = [
     { who: 'officer', text: s => `没有票据的，${GOOD[bigItem(s)].name}先暂扣一部分，补了票再来领。`,
       effect: s => {
         const id = bigItem(s), it = s.inv[id], n = Math.max(1, Math.floor(it.qty * 0.3));
-        it.cost -= Math.round(it.cost * n / it.qty); it.qty -= n;
+        it.cost -= Math.round(it.cost * n / it.qty); it.qty -= n; if (it.bad) it.bad = Math.min(it.bad, it.qty);
         if (it.qty <= 0) delete s.inv[id];
         return `${GOOD[id].name} -${n}`;
       } },
@@ -233,6 +280,17 @@ export const EVENT_SCENES = [
     { k: 'no', who: 'boss', text: '也是，身体要紧。', end: true },
   ] },
 ];
+EVENT_SCENES.push({ id: 'ev_shortdrama', w: 2, lines: [
+  { who: 'narr', text: '街边支着三脚架和一台笔记本，几个年轻人围着一个空摊位，在拍“AI 市井短剧”。' },
+  { who: 'director', text: '靓仔！缺个群演。画面是 AI 生成的，可人脸它老崩，得拍个真人垫一下。站摊前说一句词，两百块。', choices: [
+    { label: '“行，什么词？”', to: 'yes' },
+    { label: '“我赶着拿货。”', to: 'no' },
+  ] },
+  { k: 'yes', who: 'director', text: '就一句：“贵是贵点，但吃了不烧心。”要说出信念感。这不是在卖货，而是在卖一种……算了，你直接说。' },
+  { who: 'me', text: '贵是贵点，但吃了不烧心。' },
+  { who: 'director', mood: 'smile', text: '过！AI 生成了四十遍都没你这个味儿。', effect: s => { s.cash += 200; return '现金 +¥200'; }, end: true },
+  { k: 'no', who: 'director', text: '行吧，那我们再让 AI 崩几遍。', end: true },
+] });
 for (const e of EVENT_SCENES) e.event = true;
 
 // 有人找你下订单时的对话（订单内容在 s.offer 里，由 logic.js 生成）
@@ -270,14 +328,14 @@ const SMALL_TALK = {
   futian: ['这边的楼，灯是通宵不灭的。', '中午别来这吃饭，一碗面三十八。', '刚面完试，也不知道有没有戏。'],
   luohu: ['过关的队今天排到天桥上去了。', '以前带货的都从这走，热闹得很。', '火车站那头的肠粉，三十年没变过味。'],
   dongmen: ['东门的东西，开口先砍一半。', '我小时候这还是骑楼老街，现在全是奶茶店。', '周末别来，人挤人。'],
-  keji: ['刚下班。哦不对，是刚吃完饭回去加班。', '这栋楼的灯，凌晨两点还亮着一大半。', '我们组上个月刚发了新品，卖疯了。'],
+  keji: ['我在养龙虾。不是吃的那种，是会自己上网干活的那种。', '刚下班。哦不对，是刚吃完饭回去加班。', '这栋楼的灯，凌晨两点还亮着一大半。', '我们组上个月刚发了新品，卖疯了。'],
   shekou: ['晚上海边风大，记得多带件衣服。', '这一片老外多，东西卖得上价。', '以前这是码头，我爸就在这卸过货。'],
   baoan: ['厂里又招人了，包吃包住。', '今天总算不用加班。', '我们那条线一天要出两万个灯。'],
   longhua: ['这的房租又涨了，握手楼都要一千五了。', '楼下那家隆江猪脚饭，深夜两点还开着。', '搬来三年，还没见过对门邻居长什么样。'],
   dafen: ['一幅《向日葵》，我师傅一天能画八张。', '现在都画原创了，临摹不好卖。', '画框比画还贵，你信不信。'],
   yantian: ['今天又到了三条大船。', '码头不等人，货到了就得拉走。', '海鲜街往东走，晚上才热闹。'],
 };
-const COMMON_TALK = ['深圳这天气，说下雨就下雨。', '来了就是深圳人嘛。', '时间就是金钱，我先走了啊。', '你也是做生意的？看着就像。'];
+const COMMON_TALK = ['昨晚刷 AI 短剧刷到两点，全是摆摊立规矩的。', '那家店贵是贵点，但是不烧心，你懂我意思吧。', '深圳这天气，说下雨就下雨。', '来了就是深圳人嘛。', '时间就是金钱，我先走了啊。', '你也是做生意的？看着就像。'];
 
 // 明天最值得跑一趟的行情（不重复地图上已有的那条小道消息）
 function bestTip(s) {
@@ -324,6 +382,34 @@ const ASKS = [
     { k: 'n', who: 'passer', text: '行，那我挂网上卖。', end: true } ],
 ];
 
+ASKS.push([
+  { who: 'passer', mood: 'sad', text: '哎呀！电单车倒了，货撒了一地。搭把手行不行？', choices: [
+    { label: '蹲下帮他一件件捡起来', effect: s => { if (!s.flags.duckDay) s.flags.duckDay = s.day; return favor(s, 1); }, to: 'y' },
+    { label: '绕过去', to: 'n' } ] },
+  { k: 'y', who: 'passer', mood: 'smile', text: '好人啊！我没什么谢你的，这只酱板鸭你拿着，我老家带来的。', effect: s => hp(s, 5) + '（当晚加了个菜）', end: true },
+  { k: 'n', who: 'passer', text: '唉，现在的人……', end: true },
+]);
+const LOBSTER = [
+  { who: 'passer', text: '帮我看五分钟电脑行吗？我养的“龙虾”在跑，就是个智能体。你盯着别让它乱点就行。', choices: [
+    { label: '“行，我看着。”', to: 'y' }, { label: '“我不懂这个。”', to: 'n' } ] },
+  { k: 'y', who: 'narr', text: '你盯着屏幕。“龙虾”很有礼貌地问你最近在买什么，然后自己跟三家店砍了价，替你退回来一笔差价。', effect: s => { s.cash += 66; return '现金 +¥66'; } },
+  { who: 'passer', mood: 'smile', text: '回来了！咦，它怎么还帮你薅了个羊毛……算了，说明规矩我给它立得还行。', end: true },
+  { k: 'n', who: 'passer', text: '没事，我把它拴桌腿上。', end: true },
+];
+
+// 烧心货：走到档口时老板压低声音问你要不要（内容在 s.shady 里，由 logic.js 生成）
+export function shadyScene(s) {
+  const name = GOOD[s.shady.good].name;
+  return { id: 'shady', offer: true, lines: [
+    { who: 'boss', text: `（压低声音）靓仔，我这有一批${name}，来路你别问，七折给你。转手能不能出掉，看你运气。`, choices: [
+      { label: '“我只拿正路货。”', effect: s => { s.shady.state = 'refused'; return favor(s, 1); }, to: 'no' },
+      { label: '“七折？拿来看看。”', effect: s => { s.shady.state = 'open'; return `今天这里的${name}按七折进，但都是烧心货`; }, to: 'yes' },
+    ] },
+    { k: 'no', who: 'boss', mood: 'smile', text: '行，有规矩。那批货我也不想碰，是别人硬压给我的。', end: true },
+    { k: 'yes', who: 'boss', text: '丑话说前头：被人验出来退货，我可不认账。', end: true },
+  ] };
+}
+
 // 和第 i 个路人说话时播放的场景；今天已经聊过就返回 null
 export function walkerScene(s, i) {
   const kind = walkerKind(s, i);
@@ -338,7 +424,7 @@ export function walkerScene(s, i) {
         effect: () => `线索：明天${t.d.name}的${t.g.name}${t.cheap ? '便宜' : '走俏'}` },
     ] : [{ who: 'passer', text: '最近行情平平，没什么可说的。' }];
   } else if (kind === 'ask') {
-    lines = ASKS[h % ASKS.length];
+    lines = s.loc === 'keji' && h % 2 ? LOBSTER : ASKS[h % ASKS.length];
   } else {
     const pool = (SMALL_TALK[s.loc] || []).concat(COMMON_TALK);
     lines = [{ who: 'passer', text: pool[h % pool.length] }];
@@ -411,6 +497,10 @@ export function epilogue(s) {
     out.push(s.favor >= 3 ? '炳叔替你在会里担了话，可利息一分也没少算。'
       : '炳叔的人还在到处打听你的下落。');
   }
+  if (s.flags.rule === 'loyal' || s.flags.rule === 'helped') out.push('肠粉摊阿姨的队又排到了街角，她说你来了不用排。');
+  const net = s.cash + s.bank - s.debt;
+  if (s.favor >= 4) out.push('规矩立住了，路是越走越宽。这座城市里，肯替你说话的人不少。');
+  else if (s.favor < 0 && net > 0) out.push('钱是挣到了，就是夜里想起来，有点烧心。');
   if (s.flags.jie === 'lent') out.push('阿杰后来当上了线长，逢人就说起借他五百块的那个老乡。');
   else if (s.flags.jie === 'fed') out.push('阿杰每次路过那家猪脚饭，都会想起你。');
   return out;
