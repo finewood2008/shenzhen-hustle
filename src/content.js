@@ -10,8 +10,8 @@ export const CONFIG = {
   bankRate: 0.008,   // 存款日息
   capacity: 100,     // 初始背包容量
   storageStep: 50,   // 每次扩容增加的容量
-  storageMax: 300,
-  storageCost: 4000, // 第 n 次扩容花费 = storageCost * n
+  storageMax: 200,   // 背包本身最多扩到这么大（车另算）
+  storageCost: 30000, // 第 n 次扩容花费 = storageCost * n
   clinicCost: 30,    // 每点体力的花费
   // 行情：每样货每天的价格 = 最低价 + (最高价 − 最低价) × u，u 以 0.5 为中心、在 ±priceSpread/2 之内，越靠中间越常见
   // 这一组数是用三种水平的模拟玩家各跑几百局调出来的：
@@ -112,8 +112,8 @@ export const RANKS = [
 // 交通工具：在宝安的租仓点买。cap 是多出来的背包容量，speed 是街上走路的倍速，fuel 是每趟的油钱。
 // 面包车一天能跑两趟：每天第二次换区不过夜。
 export const VEHICLES = {
-  ebike: { name: '二手电单车', icon: '🛵', cost: 2500, cap: 50, speed: 1.6, fuel: 0, desc: '背包 +50，街上走得快六成' },
-  van: { name: '二手面包车', icon: '🚐', cost: 18000, cap: 150, speed: 1, fuel: 150, desc: '背包 +150，每天能多跑一个区，每趟油钱 ¥150' },
+  ebike: { name: '二手电单车', icon: '🛵', cost: 10000, cap: 50, speed: 1.6, fuel: 0, desc: '背包 +50，街上走得快六成' },
+  van: { name: '二手面包车', icon: '🚐', cost: 100000, cap: 150, speed: 1, fuel: 150, desc: '背包 +150，每天能多跑一个区，每趟油钱 ¥150' },
 };
 
 // 今日大事：每过一天有概率出一条，当天改变规则。
