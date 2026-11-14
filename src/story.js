@@ -31,7 +31,7 @@ const unloadPay = s => 300 + (s.day % 4) * 100;
 const bigItem = s => Object.keys(s.inv).sort((a, b) => s.inv[b].qty - s.inv[a].qty)[0];
 
 export const CAST = {
-  me: { name: '你' },
+  me: { name: '潘潘' },
   narr: { name: '' },
   bing: { name: '炳叔', title: '老乡会会长' },
   jie: { name: '阿杰', title: '刚到深圳的老乡' },

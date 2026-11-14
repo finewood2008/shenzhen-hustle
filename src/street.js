@@ -7,6 +7,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { labelSprite, signBoard, makeFigure, animateFigure, facadeMaterials, tileTexture } from './models.js';
 import { kit, palm, buildLandmark, decorate, SHOPS, SHOP_COLORS, PALM_DISTRICTS } from './landmarks.js';
 import { STREETS, buildSouth, capBuilding } from './streetscape.js';
+import { makePanpan, onPanpan } from './panpan.js';
 
 const Z_MIN = -4.4, Z_MAX = 4.6, X_MIN = -21;
 const SPEED = 7, TURN = 1.8, NEAR = 3.2;
@@ -47,16 +48,19 @@ export function createStreet(renderer, el, handlers) {
   let labels = [];
   const look = new THREE.Vector3(); // 镜头盯着的点，平滑地跟着主角
   let player = null, face = 0, faceTo = null, walkPhase = 0;
+  let pan = null; // 主角潘潘的 3D 模型，整局只做一个，换区时搬到新街上
   let cuts = [], cutKey = '';
   const keys = new Set();
   const stick = { x: 0, y: 0 }; // 触屏摇杆：x 向右，y 向前
   const touches = new Map(); let pinch = 0; // 双指缩放
 
   function dispose(root) {
-    root.traverse(o => {
+    (function walk(o) {
+      if (o.userData.keep) return; // 潘潘的模型要留着下次用
       if (o.geometry) o.geometry.dispose();
       for (const m of [].concat(o.material || [])) { if (m.map) m.map.dispose(); m.dispose(); }
-    });
+      o.children.forEach(walk);
+    })(root);
   }
 
   function build(d, idx, defs) {
@@ -323,7 +327,11 @@ export function createStreet(renderer, el, handlers) {
   // 主角：形象由玩家自己定，脚下一圈光环方便在人群里找到
   function makePlayer() {
     if (player) { world.remove(player); dispose(player); }
-    player = makeFigure(handlers.playerLook ? handlers.playerLook() : { shirt: 0xff5a1f, pants: 0x1f2937, pack: 0x2563eb, scale: 1.2 });
+    if (!pan) pan = makePanpan(1.9); // 和路人差不多高（路人大约 1.7～2.1）
+    if (pan) { // 潘潘；模型还没下载完时先用简易小人顶替，下载完再换上
+      player = new THREE.Group();
+      player.add(pan.root);
+    } else player = makeFigure({ shirt: 0xff5a1f, pants: 0x1f2937, pack: 0x2563eb, scale: 1.2 });
     const halo = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.66, 28), new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 }));
     halo.rotation.x = -Math.PI / 2; halo.position.y = 0.05;
     player.add(halo);
@@ -457,6 +465,8 @@ export function createStreet(renderer, el, handlers) {
   window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
 
+  onPanpan(() => { if (world) makePlayer(); });
+
   // ---------- 每帧 ----------
   function update(dt, t) {
     let right = 0, fwd = 0, turn = 0;
@@ -497,7 +507,8 @@ export function createStreet(renderer, el, handlers) {
     walkPhase += dt * 11;
     player.position.copy(pos);
     player.rotation.y = face;
-    animateFigure(player, walkPhase, moving);
+    if (pan) { if (!pan.busy) pan.play(moving ? 'run' : 'idle'); pan.update(dt); }
+    else animateFigure(player, walkPhase, moving);
     if (fp && turnTo != null) {
       const diff = wrap(turnTo - yaw);
       yaw = wrap(yaw + diff * Math.min(1, dt * 5));
@@ -542,6 +553,8 @@ export function createStreet(renderer, el, handlers) {
     resize(w, h) { vw = w; vh = h; applyView(); },
     get view() { return view; },
     refreshPlayer() { if (world) makePlayer(); },
+    // 让潘潘做一个一次性动作：jump / hurt / fall 等
+    emote(name, maxSec) { if (pan) pan.emote(name, maxSec); },
     // 聊完了：路人接着走，头顶的标记换成新的（通常是去掉）
     releaseWalker(i, icon = null) {
       const w = walkers[i];
@@ -565,7 +578,7 @@ export function createStreet(renderer, el, handlers) {
       if (startX == null) pos.set(spots[0].x + 2.8, 0, -2.4); // 从地铁口出来
       else pos.set(startX, 0, 0);
       az = startAz ?? -Math.PI / 4;
-      face = Math.PI / 2; faceTo = null;
+      face = az + 0.5; faceTo = null; // 进街时侧身朝着镜头，看得到潘潘的脸
       yaw = -Math.PI / 2 + 0.12; pitch = 0; turnTo = null; bob = 0;
       applyView();
       target = null; pending = null; chase = null; nearW = null; marker.visible = false;

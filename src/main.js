@@ -5,9 +5,10 @@ import * as L from './logic.js';
 import { createScene } from './scene.js';
 import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene } from './story.js';
 import { getAccount, ensureAccount, rename, submitScore, fetchBoard } from './net.js';
-import { portrait, heroPortrait } from './portraits.js';
+import { portrait } from './portraits.js';
+import { PANPAN_ART } from './panpan.js';
 import { initAudio, applyAudioSettings, setMood, sfx } from './audio.js';
-import { settings, saveSettings, applySettings, heroName, heroLook, THEMES, SIZES, SPEEDS, STATS, SHIRTS, PACKS, HAIRSTYLES, PRESETS, NAMES } from './settings.js';
+import { settings, saveSettings, applySettings, heroName, nickname, THEMES, SIZES, SPEEDS, STATS, NAMES } from './settings.js';
 
 const $ = sel => document.querySelector(sel);
 const yuan = n => (n < 0 ? '-¥' : '¥') + Math.abs(Math.round(n)).toLocaleString('zh-CN');
@@ -29,7 +30,6 @@ const view = createScene($('#stage'), DISTRICTS, {
   onPick,
   street: {
     canMove: () => playing() && mode === 'street' && $('#modal').hidden && $('#screen').hidden && $('#sheet').hidden,
-    playerLook: heroLook,
     onNear(spot) {
       nearSpot = spot;
       if (activeSpot && (!spot || spot.id !== activeSpot.id)) activeSpot = null; // 走开就收摊
@@ -143,7 +143,7 @@ function render() {
       <span class="chip">📍 ${d.name}</span>
     </div>
     <div class="wallet">
-      <small>${heroName() === '你' ? '余额' : heroName() + ' 的余额'}</small>
+      <small>潘潘的余额</small>
       <b>${yuan(s.cash)}</b>
       <div class="sub">${sub.join('')}</div>
       ${on.health ? `<div class="hp"><i style="width:${s.health}%"></i></div>` : ''}
@@ -285,7 +285,9 @@ window.addEventListener('keydown', e => {
 });
 
 // ---------- 剧情对话 ----------
-const dlg = { root: $('#dialog'), portrait: $('#dialog .portrait'), who: $('#dialog .who'), text: $('#dialog .text'), choices: $('#dialog .choices'), more: $('#dialog .more') };
+// 对话框：左边固定是潘潘，右边是对话的另一方；谁说话谁亮起来，气泡尖角指向他
+const actor = side => ({ el: $(`#dialog .actor.${side}`), art: $(`#dialog .actor.${side} .portrait`), tag: $(`#dialog .actor.${side} .tag`) });
+const dlg = { root: $('#dialog'), me: actor('me'), them: actor('them'), who: $('#dialog .who'), text: $('#dialog .text'), choices: $('#dialog .choices'), more: $('#dialog .more') };
 // 有该触发的剧情就播，可能连着好几段；全部播完后调用 then
 function checkStory(then) {
   const sc = s && !scene && nextScene(s);
@@ -294,7 +296,10 @@ function checkStory(then) {
 }
 // 播放一段对话，播完调用 then。seed 决定路人长什么样
 function startScene(sc, then, seed = 0) {
-  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then, seed };
+  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then, seed, them: null };
+  // 一开场右边就先站好对话的另一方（这段里第一个出场的别人）
+  const first = sc.lines.find(l => l.who !== 'me' && l.who !== 'narr');
+  if (first) setThem(first.who, first.mood || 'plain');
   activeSpot = null;
   dlg.root.hidden = false;
   render();
@@ -313,10 +318,13 @@ function showLine() {
     return;
   }
   const c = CAST[cur.who];
-  const art = portrait(cur.who, cur.mood, scene.seed);
+  if (cur.who !== 'me' && cur.who !== 'narr') setThem(cur.who, cur.mood);
   dlg.root.dataset.who = cur.who;
-  dlg.portrait.innerHTML = art;
-  dlg.portrait.hidden = !art;
+  dlg.me.art.innerHTML = panpanImg();
+  dlg.me.tag.textContent = '潘潘';
+  dlg.them.el.hidden = !scene.them;
+  dlg.me.el.classList.toggle('on', cur.who === 'me');
+  dlg.them.el.classList.toggle('on', cur.who !== 'me' && cur.who !== 'narr');
   dlg.who.innerHTML = c.name ? `${c.name}${c.title ? `<small>${c.title}</small>` : ''}` : '';
   dlg.who.hidden = !c.name;
   dlg.choices.innerHTML = '';
@@ -331,6 +339,16 @@ function showLine() {
     if (scene.shown < scene.full.length) sfx.blip();
     if (scene.shown >= scene.full.length) lineDone();
   }, 26);
+}
+// 换右边的人：同一个人只换表情，换了人就重新出场
+function setThem(who, mood) {
+  const key = who + ':' + mood;
+  if (scene.them === key) return;
+  const changed = !scene.them || scene.them.split(':')[0] !== who;
+  scene.them = key;
+  dlg.them.art.innerHTML = portrait(who, mood, scene.seed);
+  dlg.them.tag.textContent = CAST[who].name;
+  if (changed) { dlg.them.el.style.animation = 'none'; void dlg.them.el.offsetWidth; dlg.them.el.style.animation = ''; }
 }
 function lineDone() {
   clearInterval(scene.timer);
@@ -392,7 +410,7 @@ $('#panel').addEventListener('click', e => {
       onOk: n => {
         const r = L.sell(s, sell, n);
         if (!r) return;
-        if (r.caught) sfx.fail(); else sfx.sell();
+        if (r.caught) { sfx.fail(); view.emote('hurt', 1.6); } else sfx.sell();
         if (r.caught) {
           const t = `“这批货有问题！”${r.bad} 件${g.name}被当场退货，钱没收到，货也废了。人情 -1`;
           say(t); toast(t, 4200);
@@ -418,7 +436,7 @@ $('#panel').addEventListener('click', e => {
   } else if (act === 'haggle') {
     const res = L.haggle(s, activeSpot.id, activeSpot.goods);
     if (res) {
-      if (res === 'win') sfx.win(); else sfx.fail();
+      if (res === 'win') { sfx.win(); view.emote('jump', 2.2); } else { sfx.fail(); view.emote('hurt', 1.6); }
       const t = res === 'win' ? '“行，老主顾的规矩：价让你一点，料不能减。”' : '“价钱能谈，规矩不能坏。今天就这个价。”';
       say(res === 'win' ? '砍价成功，这个档口今天便宜 12%。' : '砍价失败，这个档口今天贵了 6%。');
       toast(t, 3200);
@@ -507,59 +525,42 @@ function clearSave() { try { localStorage.removeItem(SAVE); } catch { /* 无所�
 const hexc = c => '#' + c.toString(16).padStart(6, '0');
 const seg = (key, list, cur) => `<div class="seg">${list.map(o => `<button data-set="${key}" data-val="${o.id}" class="${String(o.id) === String(cur) ? 'on' : ''}">${o.name}</button>`).join('')}</div>`;
 const swatches = (key, list, cur) => `<div class="seg">${list.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-hero="${key}" data-val="${c}" style="background:${hexc(c)}" aria-label="颜色"></button>`).join('')}</div>`;
-// 形象板块：左边一张“工牌”实时预览，右边先挑现成造型，再按标签页细调
-let heroTab = 'shirt';
-const HERO_TABS = [['shirt', '上衣'], ['pack', '背包'], ['hair', '发型'], ['skirt', '下装']];
+// 潘潘的头像：正面设定图
+const panpanImg = () => `<img class="panpan" src="${PANPAN_ART}" alt="潘潘">`;
+// 主角卡：主角固定是潘潘，玩家可以改的是自己在天梯上的昵称
 function heroHtml() {
-  const h = settings.hero;
-  const same = p => p.shirt === h.shirt && p.pack === h.pack && p.hair === h.hair && p.skirt === h.skirt;
-  const picker = {
-    shirt: () => SHIRTS.map(c => `<button class="sw ${c === h.shirt ? 'on' : ''}" data-hero="shirt" data-val="${c}" style="background:${hexc(c)}" aria-label="上衣颜色"></button>`).join(''),
-    pack: () => PACKS.map(c => `<button class="sw ${c === h.pack ? 'on' : ''}" data-hero="pack" data-val="${c}" style="background:${hexc(c)}" aria-label="背包颜色"></button>`).join(''),
-    hair: () => HAIRSTYLES.map(o => `<button data-hero="hair" data-val="${o.id}" class="${o.id === h.hair ? 'on' : ''}">${o.name}</button>`).join(''),
-    skirt: () => `<button data-hero="skirt" data-val="0" class="${h.skirt ? '' : 'on'}">长裤</button><button data-hero="skirt" data-val="1" class="${h.skirt ? 'on' : ''}">裙子</button>`,
-  }[heroTab]();
-  return `<div class="hero">
-    <div class="badge">
-      <i class="clip"></i>
-      <div class="ava">${heroPortrait(h)}</div>
-      <input type="text" id="hero-name" maxlength="10" placeholder="点这里起名" value="${h.name.replace(/"/g, '&quot;')}" aria-label="名字">
-      <small>${getAccount() ? '账号 ' + getAccount().id : '深圳搞钱人 · 第 1 天报到'}</small>
-      <button class="dice" data-random title="随机一个">🎲 随机</button>
-    </div>
-    <div class="looks">
-      <h4>挑一个造型</h4>
-      <div class="presets">${PRESETS.map((p, i) => `<button data-preset="${i}" class="${same(p) ? 'on' : ''}"><span>${heroPortrait(p, 'plain')}</span>${p.name}</button>`).join('')}</div>
-      <h4>或者自己搭</h4>
-      <div class="tabs">${HERO_TABS.map(([k, n]) => `<button data-herotab="${k}" class="${k === heroTab ? 'on' : ''}">${n}</button>`).join('')}</div>
-      <div class="pick">${picker}</div>
+  const acct = getAccount();
+  return `<div class="hero solo">
+    <div class="art">${panpanImg()}</div>
+    <div class="who">
+      <h4>主角</h4>
+      <div class="lead">潘潘</div>
+      <p class="bio">一只从罗湖口岸下车的熊猫。揣着老乡会借来的钱，想在深圳闯出点名堂。</p>
+      <h4>我的昵称 · 天梯上显示</h4>
+      <div class="nick">
+        <input type="text" id="hero-name" maxlength="10" placeholder="起个昵称" value="${settings.hero.name.replace(/"/g, '&quot;')}" aria-label="昵称">
+        <button class="dice" data-random title="随机一个">🎲</button>
+      </div>
+      <small class="acct">${acct ? '账号 ' + acct.id : '正在分配账号…'}</small>
     </div>
   </div>`;
 }
-// 形象选项的点击和输入，封面和设置面板共用。返回 true 表示需要重画
+// 昵称的输入和随机，封面和设置面板共用。返回 true 表示需要重画
 function heroInput(e) {
   if (e.target.id === 'hero-name') {
     settings.hero.name = e.target.value; saveSettings();
     if (e.type === 'change') syncName(); // 改完名字（输入框失去焦点）再同步到服务器
     return false;
   }
-  if (e.type !== 'click' || !e.target.closest) return false;
-  const h = settings.hero;
-  const tab = e.target.closest('[data-herotab]'), pre = e.target.closest('[data-preset]'), b = e.target.closest('[data-hero]');
-  if (tab) { heroTab = tab.dataset.herotab; return true; }
-  if (pre) Object.assign(h, PRESETS[Number(pre.dataset.preset)], { name: h.name });
-  else if (e.target.closest('[data-random]')) {
-    const pick = a => a[Math.floor(Math.random() * a.length)];
-    setTimeout(syncName, 0);
-    Object.assign(h, { name: pick(NAMES), shirt: pick(SHIRTS), pack: pick(PACKS), hair: pick(HAIRSTYLES).id, skirt: Math.random() < 0.4 });
-  } else if (b) {
-    const k = b.dataset.hero, v = b.dataset.val;
-    h[k] = k === 'hair' ? v : k === 'skirt' ? v === '1' : Number(v);
-  } else return false;
+  if (e.type !== 'click' || !e.target.closest || !e.target.closest('[data-random]')) return false;
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const places = ['福田', '罗湖', '南山', '宝安', '龙华', '盐田', '蛇口', '东门', '大芬', '华强北'];
+  settings.hero.name = pick(places) + pick(NAMES) + (10 + Math.floor(Math.random() * 90));
   saveSettings();
-  view.refreshPlayer();
+  setTimeout(syncName, 0);
   return true;
 }
+
 // ---------- 账号和天梯 ----------
 // 把昵称同步到服务器；不合适的名字会被退回
 async function syncName() {
@@ -576,7 +577,7 @@ async function syncName() {
   if (s && !s.over) render();
 }
 function toastAnywhere(text) { // 封面上没有 HUD，提示直接显示在名字输入框下面
-  const small = document.querySelector('.badge small');
+  const small = document.querySelector('.hero .acct');
   if (small) { small.textContent = text; small.style.color = 'var(--danger)'; } else toast(text);
 }
 const BOARD_MSG = { not_configured: '天梯暂未开通', offline: '连不上服务器，天梯看不了', no_account: '连不上服务器，这局没有计入天梯', slow_down: '提交太频繁，稍后再试' };
@@ -625,7 +626,7 @@ function openSettings() {
         <div class="opt"><span>默认视角</span>${seg('view', [{ id: 'iso', name: '斜俯视' }, { id: 'fp', name: '第一人称' }], settings.view)}</div>
         <div class="opt"><span>对话文字速度</span>${seg('speed', SPEEDS, settings.speed)}</div>
       </section>
-      <section class="herosec"><h4>我的形象</h4>${heroHtml()}</section>
+      <section class="herosec"><h4>主角和昵称</h4>${heroHtml()}</section>
     </div>`;
     sh.firstElementChild.scrollTop = y;
   };
@@ -662,7 +663,7 @@ $('#orders').addEventListener('click', e => {
   const t = r.bad
     ? `交货：${G[o.good].name} ×${o.qty}，其中 ${r.bad} 件烧心货被验了出来，只收到 ${yuan(r.got)} · 人情 -1`
     : `交货：${G[o.good].name} ×${o.qty}，收到 ${yuan(r.got)} · 人情 +1`;
-  if (r.bad) sfx.fail(); else sfx.win();
+  if (r.bad) { sfx.fail(); view.emote('hurt', 1.6); } else { sfx.win(); view.emote('jump', 2.2); }
   say(t, 'rumor'); toast(t, 3600);
   render();
 });
@@ -717,7 +718,8 @@ function go(id) {
     checkStory(() => { // 对话都播完后，再看有没有累倒
       const c = L.checkCollapse(s);
       if (!c) return;
-      const t = `你累倒在路边，被送进医院躺了两天，花了 ${yuan(c.fee)}。`;
+      view.emote('fall', 3);
+      const t = `潘潘累倒在路边，被送进医院躺了两天，花了 ${yuan(c.fee)}。`;
       say(t); toast(t, 4200); render();
     });
   });
@@ -733,8 +735,8 @@ function startScreen() {
   sc.innerHTML = `<div class="card glass cover">
     <div class="pitch">
       <span class="tag">30 天挑战</span>
-      <h1>深圳<span>浮生</span>记</h1>
-      <div class="sub">一个行李箱，三十天，一座不睡觉的城市。你揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
+      <h1>潘潘<span>浮生</span>记</h1>
+      <div class="sub">一只熊猫，一个行李箱，三十天，一座不睡觉的城市。潘潘揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
       <ul class="points">
         <li><i>📈</i><b>低买高卖</b>十个区、十样货，行情一天一变</li>
         <li><i>📦</i><b>接单跑腿</b>按时送到，价钱比市面高</li>
@@ -755,7 +757,7 @@ function startScreen() {
         · 路人可以搭话：头顶 💬 的有行情消息，❗ 的有事找你。<br>
         · 怎么待人会影响人情，人情影响砍价、借款和结局。<br>
         · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。<br>
-        · 主题、布局和形象随时可以在底栏的“设置”里改。
+        · 主题、布局和昵称随时可以在底栏的“设置”里改。
       </div></details>
     </div>
   </div>`;
@@ -805,12 +807,12 @@ function endGame() {
   $('#bar').hidden = true;
   $('#dock').hidden = true;
   const st = s.stats || {}, name = heroName();
-  const story = summary(s, r.score, name === '你' ? '你' : name).concat(epilogue(s));
+  const story = summary(s, r.score, name).concat(epilogue(s));
   $('#screen').innerHTML = `<div class="card glass final">
     <div class="scorecard ${r.score < 0 ? 'neg' : ''}">
-      <div class="ava">${heroPortrait(settings.hero, r.score < 0 ? 'sad' : 'smile')}</div>
+      <div class="ava">${panpanImg()}</div>
       <div>
-        <small>${name === '你' ? '' : name + ' · '}深圳 ${CONFIG.days} 天 · 净资产</small>
+        <small>${nickname() ? nickname() + ' · ' : ''}潘潘在深圳 ${CONFIG.days} 天 · 净资产</small>
         <div class="score">${yuan(r.score)}</div>
         <div class="rank">${r.title}</div>
       </div>

@@ -214,22 +214,33 @@ input[type="number"], input[type="text"] {
   position: fixed; inset: 0; z-index: 15; display: flex; align-items: flex-end; justify-content: center;
   padding: 0 12px 22px; cursor: pointer; background: linear-gradient(transparent 45%, var(--veil));
 }
-#dialog .wrap { width: min(760px, 100%); display: flex; align-items: flex-end; gap: 12px; }
-#dialog .portrait {
-  width: 132px; flex: none; line-height: 0; border-radius: 22px; overflow: hidden;
-  border: 3px solid var(--bubble); box-shadow: 0 8px 30px rgba(0, 0, 0, .4); animation: rise .2s ease-out;
-}
+#dialog .wrap { width: min(900px, 100%); display: grid; grid-template-columns: 128px minmax(0, 1fr) 128px; grid-template-areas: "me box them"; align-items: end; gap: 14px; }
+#dialog .actor { display: flex; flex-direction: column; align-items: center; gap: 6px; transition: transform .2s, filter .2s; transform: scale(.88); filter: brightness(.82) saturate(.8); animation: rise .22s ease-out; }
+#dialog .actor.me { grid-area: me; transform-origin: bottom left; }
+#dialog .actor.them { grid-area: them; transform-origin: bottom right; }
+#dialog .actor.on { transform: scale(1); filter: none; opacity: 1; }
+#dialog .portrait { width: 100%; line-height: 0; border-radius: 22px; overflow: hidden; border: 3px solid #475569; box-shadow: 0 8px 30px rgba(0, 0, 0, .4); background: var(--card2); }
+#dialog .actor.on .portrait { border-color: var(--hot); }
+#dialog .actor.me.on .portrait { border-color: var(--accent); }
 #dialog .portrait svg { width: 100%; height: auto; display: block; }
+#dialog .tag { background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: .85em; font-weight: 700; padding: .1em .8em; border-radius: 999px; white-space: nowrap; }
+#dialog .actor.on .tag { background: var(--hot); border-color: var(--hot); color: var(--hot-ink); }
+#dialog .actor.me.on .tag { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 #dialog .box {
-  flex: 1; min-width: 0; position: relative; padding: 12px 18px 16px; min-height: 112px;
-  background: var(--bubble); color: var(--bubble-ink); border: none; border-radius: 20px 20px 20px 6px;
+  grid-area: box; position: relative; padding: 12px 18px 16px; min-height: 112px; margin-bottom: 32px;
+  background: var(--bubble); color: var(--bubble-ink); border: none; border-radius: 20px;
 }
+#dialog .box::after { /* 气泡的尖角：对方说话指向右边，潘潘说话指向左边 */
+  content: ""; position: absolute; bottom: 22px; right: -11px; border: 11px solid transparent; border-right: 0; border-left-color: var(--bubble);
+}
+#dialog[data-who="me"] .box::after { right: auto; left: -11px; border-left: 0; border-right: 11px solid var(--accent); }
+#dialog[data-who="narr"] .box::after { display: none; }
 #dialog .who { font-weight: 700; font-size: .95em; color: var(--hot); margin-bottom: 2px; }
 #dialog .who small { font-weight: 400; font-size: .85em; color: #64748b; margin-left: 8px; }
 #dialog .text { margin: 0; font-size: 1.16em; line-height: 1.7; min-height: 3.4em; }
 #dialog[data-who="narr"] .box { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 16px; text-align: center; }
 #dialog[data-who="narr"] .text { font-size: 1.05em; color: var(--muted); }
-#dialog[data-who="me"] .box { background: var(--accent); color: var(--accent-ink); border-radius: 20px 20px 6px 20px; }
+#dialog[data-who="me"] .box { background: var(--accent); color: var(--accent-ink); }
 #dialog[data-who="me"] .who { color: inherit; }
 #dialog .choices { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 #dialog .choices:empty { display: none; }
@@ -255,9 +266,13 @@ input[type="number"], input[type="text"] {
   #travel { bottom: 140px; }
   kbd { display: none; }
   #dialog { padding: 0 6px 10px; }
-  #dialog .wrap { gap: 6px; }
-  #dialog .portrait { width: 82px; border-radius: 16px; }
-  #dialog .box { padding: 9px 12px 14px; }
+  /* 手机：两个头像在气泡上方的左右两角，气泡占满一行 */
+  #dialog .wrap { grid-template-columns: 76px 1fr 76px; grid-template-areas: "me . them" "box box box"; gap: 4px 6px; }
+  #dialog .portrait { border-radius: 16px; }
+  #dialog .tag { font-size: .78em; }
+  #dialog .box { padding: 9px 12px 14px; margin-bottom: 0; }
+  #dialog .box::after { bottom: auto; top: -11px; right: 34px; border: 11px solid transparent; border-top: 0; border-bottom-color: var(--bubble); }
+  #dialog[data-who="me"] .box::after { left: 34px; right: auto; border: 11px solid transparent; border-top: 0; border-bottom-color: var(--accent); }
   #screen .card { padding: 18px; }
 }
 
@@ -338,3 +353,25 @@ body[data-side="left"] #stick { left: auto; right: 16px; }
 .board li.gap { background: none; display: block; text-align: center; color: var(--muted); padding: 0; }
 .boardmsg { color: var(--muted); font-size: .9em; text-align: center; padding: 8px 0 2px; }
 @media (max-width: 760px) { .final .scorecard .ava { width: 64px; } .tiles b { font-size: 1.25em; } }
+
+/* ---------- 主角卡：潘潘 + 玩家昵称 ---------- */
+img.panpan { width: 100%; aspect-ratio: 200 / 220; object-fit: cover; object-position: 50% 30%; display: block; background: #f6f1ea; }
+.hero.solo { display: grid; grid-template-columns: 168px 1fr; gap: 16px; align-items: stretch; }
+.hero.solo .art { border-radius: 18px; overflow: hidden; line-height: 0; border: 3px solid var(--accent); background: #f6f1ea; }
+.hero.solo .art img.panpan { height: 100%; aspect-ratio: auto; object-position: 50% 40%; }
+.hero.solo .who { display: flex; flex-direction: column; }
+.hero.solo h4 { margin: 0 0 4px; }
+.hero.solo .lead { font-size: 1.7em; font-weight: 800; letter-spacing: 2px; line-height: 1.1; }
+.hero.solo .bio { color: var(--muted); font-size: .88em; line-height: 1.6; margin: 6px 0 14px; }
+.hero.solo .nick { display: flex; gap: 6px; }
+.hero.solo .nick input { flex: 1; min-width: 0; font-weight: 700; }
+.hero.solo .nick .dice { width: auto; padding: 0 .8em; font-size: 1.1em; }
+.hero.solo .acct { color: var(--muted); font-size: .78em; margin-top: 6px; display: block; }
+#sheet .herosec .hero.solo { grid-template-columns: 120px 1fr; }
+.final .scorecard .ava img.panpan { aspect-ratio: 1; object-position: 50% 22%; }
+#dialog .portrait img.panpan { aspect-ratio: 200 / 220; object-position: 50% 22%; }
+@media (max-width: 760px) {
+  .hero.solo, #sheet .herosec .hero.solo { grid-template-columns: 112px 1fr; gap: 10px; }
+  .hero.solo .lead { font-size: 1.35em; }
+  .hero.solo .bio { margin: 4px 0 8px; font-size: .8em; }
+}

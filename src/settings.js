@@ -59,7 +59,9 @@ export function applySettings() {
   b.theme = settings.theme; b.size = settings.size; b.side = settings.side;
 }
 
-export const heroName = () => settings.hero.name.trim() || '你';
+// 主角固定是潘潘；settings.hero.name 是玩家自己的昵称，用在天梯上
+export const heroName = () => '潘潘';
+export const nickname = () => settings.hero.name.trim();
 // 主角在街上的 3D 小人用的参数
 export const heroLook = () => ({
   shirt: settings.hero.shirt, pack: settings.hero.pack, hairStyle: settings.hero.hair,

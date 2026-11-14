@@ -1,6 +1,6 @@
-# 深圳浮生记
+# 潘潘浮生记
 
-一个原创的 3D 网页倒卖模拟游戏：三十天，在深圳各区之间低买高卖、还清欠款。
+一个原创的 3D 网页倒卖模拟游戏：熊猫潘潘来到深圳，三十天里在各区之间低买高卖、还清欠款。主角模型在 `assets/panpan.glb`。
 
 在线试玩：https://shenzhenfushengji.vercel.app/ （带天梯）· 备用：https://finewood2008.github.io/shenzhen-hustle/
 
@@ -13,7 +13,7 @@
 ## 运行
 
 ```bash
-python3 -m http.server 8123
+python3 tools/serve.py 8123
 ```
 
 然后打开 http://localhost:8123 。无需构建。
