@@ -375,3 +375,22 @@ img.panpan { width: 100%; aspect-ratio: 200 / 220; object-fit: cover; object-pos
   .hero.solo .lead { font-size: 1.35em; }
   .hero.solo .bio { margin: 4px 0 8px; font-size: .8em; }
 }
+
+/* ---------- 今日大事、车行、结局 ---------- */
+.news { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: 12px; padding: 6px 10px; font-size: .84em; line-height: 1.45; color: var(--muted); backdrop-filter: blur(12px); }
+.news b { display: block; color: var(--gold); }
+.car { display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; align-items: center; background: var(--card2); border-radius: 12px; padding: 8px 10px; margin-top: 6px; color: var(--text); }
+.car i { font-style: normal; font-size: 1.5em; text-align: center; }
+.car small { display: block; color: var(--muted); font-size: .84em; line-height: 1.4; }
+.car.owned { outline: 1px solid var(--accent); }
+.ending { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: start; background: var(--card2); border-radius: 14px; padding: 10px 12px; margin-top: 10px; }
+.ending i { font-style: normal; font-size: 2em; line-height: 1.2; text-align: center; }
+.ending small { display: block; color: var(--muted); font-size: .78em; }
+.ending b { font-size: 1.15em; }
+.ending p { margin: 4px 0 0 !important; color: var(--text) !important; line-height: 1.65; font-size: .93em !important; }
+.ending.locked { opacity: .5; }
+#sheet .ending:first-child { margin-top: 0; }
+#screen .go .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* 设置、天梯、结局这些弹层要盖在封面和结算页上面 */
+#sheet { z-index: 30; }

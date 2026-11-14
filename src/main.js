@@ -1,9 +1,9 @@
 // 界面层：把逻辑状态画到 HUD / 面板上，并把玩家操作转给逻辑层和 3D 场景。
 // 两个模式：'street' 在街区里走动、靠近档口交易；'map' 在城市沙盘上选下一个区。
-import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS } from './content.js';
+import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS, VEHICLES } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
-import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene } from './story.js';
+import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene, ENDINGS, ending } from './story.js';
 import { getAccount, ensureAccount, rename, submitScore, fetchBoard } from './net.js';
 import { portrait } from './portraits.js';
 import { PANPAN_ART } from './panpan.js';
@@ -30,6 +30,7 @@ const view = createScene($('#stage'), DISTRICTS, {
   onPick,
   street: {
     canMove: () => playing() && mode === 'street' && $('#modal').hidden && $('#screen').hidden && $('#sheet').hidden,
+    speed: () => (s && L.vehicleOf(s) ? L.vehicleOf(s).speed : 1),
     onNear(spot) {
       nearSpot = spot;
       if (activeSpot && (!spot || spot.id !== activeSpot.id)) activeSpot = null; // 走开就收摊
@@ -62,7 +63,7 @@ function enterStreet() {
 function interact(spot) {
   if (!playing() || mode !== 'street') return;
   if (spot.kind === 'metro') {
-    if (L.isLastDay(s)) { toast('今天是最后一天，把货卖掉就结算吧。'); return; }
+    if (!L.canTravel(s)) { toast('今天是最后一天，把货卖掉就结算吧。'); return; }
     showMap();
   } else if (spot.kind === 'stall' && s.shady && s.shady.state === 'offer' && spot.goods.includes(s.shady.good) && s.market[s.shady.good]) {
     startScene(shadyScene(s), () => { activeSpot = spot; render(); }); // 老板先问你要不要烧心货
@@ -92,7 +93,7 @@ function goodRow(g) {
   let priceHtml = '<div class="price tag-mid">无货</div>';
   if (p) {
     const k = (p - g.min) / (g.max - g.min);
-    const [cls, word] = k < 0.25 ? ['tag-low', '便宜'] : k > 0.8 ? ['tag-high', '走俏'] : ['tag-mid', '平价'];
+    const [cls, word] = k < CONFIG.tagLow ? ['tag-low', '便宜'] : k > CONFIG.tagHigh ? ['tag-high', '走俏'] : ['tag-mid', '平价'];
     priceHtml = `<div class="price">${yuan(p)}<small class="${cls}">${word}</small></div>`;
   }
   let hold = '';
@@ -124,8 +125,15 @@ function serviceHtml(kind) {
   if (kind === 'clinic') return `<p>当前体力 ${s.health}。每点体力 ${yuan(CONFIG.clinicCost)}。</p>
     <div class="service"><button data-act="heal" ${s.health < 100 && s.cash >= CONFIG.clinicCost ? '' : 'disabled'}>看病</button></div>`;
   const full = s.capacity >= CONFIG.storageMax;
+  const cur = L.vehicleOf(s);
+  const cars = Object.entries(VEHICLES).map(([id, v]) => {
+    const owned = s.vehicle === id, lower = cur && v.cap <= cur.cap && !owned;
+    return `<div class="car ${owned ? 'owned' : ''}"><i>${v.icon}</i><div><b>${v.name}</b><small>${v.desc}</small></div>
+      <button data-vehicle="${id}" ${L.canBuyVehicle(s, id) ? '' : 'disabled'}>${owned ? '已拥有' : lower ? '用不上了' : yuan(v.cost)}</button></div>`;
+  }).join('');
   return `<p>背包容量 ${s.capacity}，每次扩容 +${CONFIG.storageStep}，上限 ${CONFIG.storageMax}。</p>
-    <div class="service"><button data-act="storage" ${!full && s.cash >= L.storageCost(s) ? '' : 'disabled'}>${full ? '已到上限' : '扩容 ' + yuan(L.storageCost(s))}</button></div>`;
+    <div class="service"><button data-act="storage" ${!full && s.cash >= L.storageCost(s) ? '' : 'disabled'}>${full ? '已到上限' : '扩容 ' + yuan(L.storageCost(s))}</button></div>
+    <p style="margin-top:14px">隔壁车行，二手车现提：</p>${cars}`;
 }
 
 function render() {
@@ -141,7 +149,9 @@ function render() {
     <div class="topline">
       <span class="chip ${last ? 'warn' : ''}">📅 第 ${s.day}/${CONFIG.days} 天</span>
       <span class="chip">📍 ${d.name}</span>
+      ${L.vehicleOf(s) ? `<span class="chip" title="${L.vehicleOf(s).name}">${L.vehicleOf(s).icon}${L.freeMoveReady(s) ? ' 还能跑一趟' : ''}</span>` : ''}
     </div>
+    ${s.news ? `<div class="news"><b>📰 ${L.newsOf(s).title}</b>${L.newsOf(s).text}</div>` : ''}
     <div class="wallet">
       <small>潘潘的余额</small>
       <b>${yuan(s.cash)}</b>
@@ -158,7 +168,8 @@ function render() {
       const h = s.haggled[sp.id], open = sp.goods.some(id => s.market[id]);
       haggleHtml = h
         ? `<span class="haggled ${h}">${h === 'win' ? '砍价成功，今天这里便宜 12%' : '砍价失败，今天这里贵了 6%'}</span>`
-        : `<button data-act="haggle" ${open ? '' : 'disabled'}>砍价（${Math.round(L.haggleChance(s) * 100)}% 成）</button>`;
+        : L.canHaggle(s) ? `<button data-act="haggle" ${open ? '' : 'disabled'}>砍价（${Math.round(L.haggleChance(s) * 100)}% 成）</button>`
+        : '<span class="haggled">今天明码标价，不讲价</span>';
     }
     const body = sp.kind === 'stall'
       ? `<div class="rows">${sp.goods.map(id => goodRow(G[id])).join('')}</div>`
@@ -446,6 +457,10 @@ $('#panel').addEventListener('click', e => {
     const max = Math.min(100 - s.health, Math.floor(s.cash / CONFIG.clinicCost));
     askAmount({ title: '社康看病', hint: `当前体力 ${s.health}`, max, total: n => `恢复 ${n} 点，花费 ${yuan(n * CONFIG.clinicCost)}`,
       onOk: n => { if (L.heal(s, n)) sfx.coin(), say(`看了病，体力恢复到 ${s.health}`); } });
+  } else if (b.dataset.vehicle) {
+    const v = VEHICLES[b.dataset.vehicle];
+    if (L.buyVehicle(s, b.dataset.vehicle)) { sfx.win(); view.emote('jump', 2.2); const t = `提了一辆${v.name}：${v.desc}。`; say(t, 'rumor'); toast(v.icon + ' ' + t, 4000); }
+    render();
   } else if (act === 'storage') {
     if (L.expandStorage(s)) sfx.coin(), say(`租了个小仓，背包容量升到 ${s.capacity}`);
     render();
@@ -561,6 +576,20 @@ function heroInput(e) {
   return true;
 }
 
+// ---------- 结局收集 ----------
+function unlocked() { try { return JSON.parse(localStorage.getItem('sz-endings')) || []; } catch { return []; } }
+function openEndings() {
+  const sh = $('#sheet'), got = unlocked();
+  sh.innerHTML = `<div class="card glass"><header><b>📖 结局 ${got.length}/${ENDINGS.length}</b><button data-close>关闭</button></header><section>
+    ${ENDINGS.map(e => got.includes(e.id)
+      ? `<div class="ending"><i>${e.icon}</i><div><b>${e.title}</b><p>${e.text}</p></div></div>`
+      : '<div class="ending locked"><i>❔</i><div><b>？？？</b><p>还没有打出这个结局。</p></div></div>').join('')}
+  </section></div>`;
+  sh.onclick = e => { if (e.target === sh || e.target.closest('[data-close]')) { sh.hidden = true; if (s) render(); } };
+  sh.oninput = null;
+  sh.hidden = false;
+}
+
 // ---------- 账号和天梯 ----------
 // 把昵称同步到服务器；不合适的名字会被退回
 async function syncName() {
@@ -673,11 +702,11 @@ function onPick(id) {
   if (!playing() || mode !== 'map') return;
   const box = $('#travel');
   if (id === s.loc) { backToStreet(); return; }
-  if (L.isLastDay(s)) { toast('今天是最后一天，不能再换区了。'); return; }
+  if (!L.canTravel(s)) { toast('今天是最后一天，不能再换区了。'); return; }
   const d = D[id];
   const tip = s.rumor.district === id ? `<br><span style="color:#fbbf24">听说：${rumorText(s.rumor)}</span>` : '';
   box.innerHTML = `<b>前往 ${d.name}？</b><p>${d.desc}${tip}</p>
-    <div class="btn-row"><button data-no>取消</button><button class="primary" data-go="${id}">出发（1 天）</button></div>`;
+    <div class="btn-row"><button data-no>取消</button><button class="primary" data-go="${id}">${L.freeMoveReady(s) ? '开车过去（不过夜）' : '出发（1 天）'}</button></div>`;
   box.hidden = false;
 }
 $('#travel').addEventListener('click', e => {
@@ -700,7 +729,12 @@ function go(id) {
     busy = false;
     sfx.arrive();
     const lines = [`<b>第 ${s.day} 天 · ${D[id].name}</b>`];
-    say(`第 ${s.day} 天，到了${D[id].name}。`);
+    say(res.free ? `开车到了${D[id].name}，还是第 ${s.day} 天。` : `第 ${s.day} 天，到了${D[id].name}。`);
+    if (res.free) lines.push('面包车跑的第二趟，天还没黑。');
+    if (res.fuel) lines.push(`油钱 -${yuan(res.fuel)}`);
+    if (res.living) lines.push(`房租饭钱 -${yuan(res.living)}`);
+    if (res.hungry) { const t = '钱不够吃饭，饿了一天。体力 -6'; lines.push(t); say(t); }
+    if (res.news) { const n = L.newsOf(s), t = `📰 今日大事：${n.title}。${n.text}`; lines.push(t); say(t, 'rumor'); }
     if (res.rumorHit) {
       const t = `消息是真的：${G[res.rumorHit.good].name}${res.rumorHit.up ? '价格飞涨！' : '跌到了地板价！'}`;
       lines.push(t); say(t, 'rumor');
@@ -710,17 +744,19 @@ function go(id) {
       const t = `订单过期：${G[o.good].name} ×${o.qty} 没送到${D[o.to].name}。人情 -1`;
       lines.push(t); say(t);
     }
-    if (L.isLastDay(s)) lines.push('今天是最后一天。');
+    if (L.isLastDay(s)) lines.push(L.freeMoveReady(s) ? '今天是最后一天，面包车还能再跑一趟。' : '今天是最后一天。');
     showRumor();
     enterStreet();
     render();
-    toast(lines.join('<br>'), 4200);
+    toast(lines.join('<br>'), res.news ? 6500 : 4200);
     checkStory(() => { // 对话都播完后，再看有没有累倒
       const c = L.checkCollapse(s);
       if (!c) return;
       view.emote('fall', 3);
       const t = `潘潘累倒在路边，被送进医院躺了两天，花了 ${yuan(c.fee)}。`;
-      say(t); toast(t, 4200); render();
+      say(t);
+      for (const o of c.expired) say(`躺在医院的时候，${G[o.good].name} ×${o.qty} 的订单过期了。人情 -1`);
+      toast(t + (c.expired.length ? `<br>有 ${c.expired.length} 张订单在这期间过期了。` : ''), 4200); render();
     });
   });
   render();
@@ -747,14 +783,17 @@ function startScreen() {
     <div class="go">
       ${save ? `<button class="primary" id="resume">继续上一局（第 ${save.s.day} 天 · ${yuan(save.s.cash)}）</button>` : ''}
       <button class="${save ? 'again' : 'primary'}" id="start">${save ? '重新开局' : '开始搞钱'}</button>
-      <button class="again" id="board">🏆 天梯排行</button>
+      <div class="pair"><button class="again" id="board">🏆 天梯排行</button><button class="again" id="endings">📖 结局 ${unlocked().length}/${ENDINGS.length}</button></div>
       ${best != null ? `<div class="best">我的历史最佳 ${yuan(best)}</div>` : ''}
       <details><summary>怎么玩</summary><div class="intro">
         · 点地面走过去，或用 WASD；按住拖动转镜头，滚轮缩放，按 V 切换第一人称。<br>
         · 走近档口看货，低买高卖；每个档口每天能砍一次价。<br>
         · 去地铁站换区，每换一次过一天。欠款每天涨 ${CONFIG.debtRate * 100}%，回罗湖的老乡会才能还。<br>
+        · 每过一天要付 ${yuan(CONFIG.livingCost)} 房租饭钱，赶路也掉体力；体力低了去龙华的社康，有车会轻松些。<br>
         · 有人会找你下订单，按时把货送到指定的区，价钱比市面高。<br>
-        · 路人可以搭话：头顶 💬 的有行情消息，❗ 的有事找你。<br>
+        · 路人可以搭话：头顶 💬 的有行情消息，但一半是假的；❗ 的有事找你。<br>
+        · 宝安的车行能买电单车和面包车；每天可能有一条“今日大事”改变当天的行情和规则。<br>
+        · 结局有 ${ENDINGS.length} 种，看你赚了多少、怎么待人。<br>
         · 怎么待人会影响人情，人情影响砍价、借款和结局。<br>
         · 第 ${CONFIG.days} 天结算：现金 + 存款 − 欠款，没卖掉的货不算。<br>
         · 主题、布局和昵称随时可以在底栏的“设置”里改。
@@ -765,6 +804,7 @@ function startScreen() {
   sc.onclick = e => { if (heroInput(e)) { const y = sc.firstElementChild.scrollTop; startScreen(); sc.firstElementChild.scrollTop = y; } };
   sc.oninput = sc.onchange = heroInput;
   $('#board').onclick = openBoard;
+  $('#endings').onclick = openEndings;
   // 第一次来：自动开一个账号，没起名字的话先用分配的昵称
   if (!getAccount() || !settings.hero.name) ensureAccount().then(a => {
     if (!a || !$('#hero-name') || sc.hidden) return;
@@ -808,6 +848,8 @@ function endGame() {
   $('#dock').hidden = true;
   const st = s.stats || {}, name = heroName();
   const story = summary(s, r.score, name).concat(epilogue(s));
+  const end = ending(s, r.score), got = unlocked(), isNew = !got.includes(end.id);
+  if (isNew) { got.push(end.id); try { localStorage.setItem('sz-endings', JSON.stringify(got)); } catch { /* 存不了就算了 */ } }
   $('#screen').innerHTML = `<div class="card glass final">
     <div class="scorecard ${r.score < 0 ? 'neg' : ''}">
       <div class="ava">${panpanImg()}</div>
@@ -817,6 +859,9 @@ function endGame() {
         <div class="rank">${r.title}</div>
       </div>
     </div>
+    <div class="ending"><i>${end.icon}</i><div>
+      <small>结局 ${ENDINGS.indexOf(end) + 1}/${ENDINGS.length}${isNew ? ' · 新解锁' : ''}　已收集 ${got.length}/${ENDINGS.length}</small>
+      <b>${end.title}</b><p>${end.text}</p></div></div>
     <div class="tiles">
       <div><b>${(st.buys || 0) + (st.sells || 0)}</b>笔买卖</div>
       <div><b>${st.delivered || 0}</b>张订单</div>

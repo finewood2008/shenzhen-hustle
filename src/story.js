@@ -51,7 +51,7 @@ export const SCENES = [
     when: s => s.day === 1,
     lines: [
       { who: 'narr', text: '罗湖口岸旁，老乡会的铁皮屋里，一台旧风扇吱呀吱呀地转。' },
-      { who: 'bing', text: s => `${yuan(CONFIG.startDebt)}，你点清楚。规矩你知道，一天五个点的利。不是我要赚你的，会里的钱，要对大家有交代。` },
+      { who: 'bing', text: s => `${yuan(CONFIG.startDebt)}，你点清楚。规矩你知道，一天四个点的利。不是我要赚你的，会里的钱，要对大家有交代。` },
       { who: 'bing', text: '深圳这地方，同一样货，在这头便宜，到那头就贵。腿勤一点，耳朵灵一点，三十天够你翻身了。' },
       { who: 'bing', text: '还钱要回这里来，当面点。别的地方我不认。', choices: [
         { label: '“谢谢炳叔，我一定早点还。”', effect: s => favor(s, 1), to: 'thanks' },
@@ -128,7 +128,7 @@ export const SCENES = [
   // ---------- 拖欠太久：上门催债 ----------
   {
     id: 'bing_pressure',
-    when: s => s.day >= 17 && s.debt >= 12000,
+    when: s => s.day >= 17 && s.debt >= 10000,
     lines: [
       { who: 'narr', text: '刚出地铁口，两个穿黑 T 恤的人一左一右把你夹在中间。' },
       { who: 'biao', text: s => `炳叔让我们来问问。${yuan(s.debt)} 的账，你打算拖到什么时候？`, to: s => (s.flags.promised ? 'promised' : 'ask') },
@@ -263,8 +263,8 @@ export const EVENT_SCENES = [
     { who: 'narr', text: '“带不回去了，你要就拿走。”他把一袋东西塞到你手里。',
       effect: s => { const id = ['led', 'powerbank', 'earbuds'][s.day % 3]; return `${GOOD[id].name} +${give(s, id, 3 + (s.day % 5))}`; } },
   ] },
-  { id: 'ev_ebike', w: 2, can: s => s.cash >= 200, lines: [
-    { who: 'officer', mood: 'angry', text: '电单车不能进这条路，牌子那么大没看见？罚款两百，车先扣下。',
+  { id: 'ev_ebike', w: 3, can: s => s.vehicle === 'ebike' && s.cash >= 200, lines: [
+    { who: 'officer', mood: 'angry', text: '电单车不能进这条路，牌子那么大没看见？罚款两百，下不为例。',
       effect: s => pay(s, 200) + ' · ' + hp(s, -5) },
     { who: 'narr', text: '剩下的路，你扛着货走完了。' },
   ] },
@@ -417,11 +417,13 @@ export function walkerScene(s, i) {
   const h = mix(s.day, locIdx(s), i + 1);
   let lines;
   if (kind === 'tip') {
-    const t = bestTip(s);
+    // 路人的消息有一半是假的：说的货和地方是真的有戏，但涨跌说反了。听上去一模一样，分不出来。
+    const t = bestTip(s), lie = (mix(s.day, locIdx(s), 4099) % 100) < CONFIG.tipLie * 100;
+    const cheap = t && (lie ? !t.cheap : t.cheap);
     lines = t ? [
       { who: 'passer', text: '你是跑货的吧？看你背着包就知道。' },
-      { who: 'passer', mood: 'smile', text: `跟你说个事，${t.d.name}那边，明天${t.g.name}${t.cheap ? '有人清仓，便宜得很' : '有人高价收，缺得厉害'}。信不信由你。`,
-        effect: () => `线索：明天${t.d.name}的${t.g.name}${t.cheap ? '便宜' : '走俏'}` },
+      { who: 'passer', mood: 'smile', text: `跟你说个事，${t.d.name}那边，明天${t.g.name}${cheap ? '有人清仓，便宜得很' : '有人高价收，缺得厉害'}。信不信由你。`,
+        effect: () => `路人说：明天${t.d.name}的${t.g.name}${cheap ? '便宜' : '走俏'}（真假各半）` },
     ] : [{ who: 'passer', text: '最近行情平平，没什么可说的。' }];
   } else if (kind === 'ask') {
     lines = s.loc === 'keji' && h % 2 ? LOBSTER : ASKS[h % ASKS.length];
@@ -485,6 +487,31 @@ export function play(s, scene) {
     },
   };
 }
+
+// 结局：从上往下，第一个条件成立的就是这一局的结局。n 是净资产。
+export const ENDINGS = [
+  { id: 'legend', icon: '👑', title: '鹏城传说', when: (s, n) => n >= 3000000 && s.favor >= 3,
+    text: '三十天，从一个行李箱到一条供应链。后来的人来深圳，都是听着潘潘的故事来的。更难得的是，一路上帮过他的人，他一个都没忘。' },
+  { id: 'lonely', icon: '🏙️', title: '孤家寡人', when: (s, n) => n >= 1000000 && s.favor < 0,
+    text: '钱是真的赚到了。潘潘搬进了福田的高层公寓，落地窗外是整个 CBD 的灯火。只是手机通讯录翻到底，找不出一个能约出来吃宵夜的人。' },
+  { id: 'heir', icon: '🤝', title: '老乡会接班人', when: s => s.debt === 0 && s.favor >= 6,
+    text: '年会那天，炳叔当着所有人的面，把那本记了二十年的账本交到潘潘手上：“以后会里的事，你多担待。”钱多钱少另说，这座城市里，潘潘有了自己人。' },
+  { id: 'boss', icon: '🏪', title: '一米柜台', when: (s, n) => n >= 300000 && s.debt === 0,
+    text: '潘潘在华强北租下了一米柜台，招牌是自己写的。从今天起，轮到别人来他这里拿货了。' },
+  { id: 'partner', icon: '🥢', title: '肠粉摊合伙人', when: (s, n) => s.flags.rule === 'helped' && n >= 20000,
+    text: '阿姨说年纪大了，起不了那么早。潘潘把攒下的钱投了进去，肠粉摊开了第二家。招牌上多了一行小字：贵是贵点，但吃了不烧心。' },
+  { id: 'driver', icon: '🚐', title: '跑货司机', when: (s, n) => s.vehicle === 'van' && n >= 0,
+    text: '钱没赚到多少，车倒是开熟了。潘潘在面包车的挡风玻璃上贴了张纸：全市拉货，随叫随到。日子不富，但每天都在路上。' },
+  { id: 'stay', icon: '🌃', title: '再闯一个月', when: (s, n) => n >= 50000,
+    text: '账还清了，手里还有一笔。潘潘退掉了回家的车票，给家里打了个电话：“妈，我再待一阵。这地方，好像真的行。”' },
+  { id: 'home', icon: '🚄', title: '回老家', when: (s, n) => n >= 0,
+    text: '不赚不赔。潘潘在罗湖站买了张回家的票，行李箱还是来时那一个。火车开动的时候他想：深圳的路，我是跑熟了的。' },
+  { id: 'bailed', icon: '📿', title: '打工还债', when: (s, n) => n < 0 && s.favor >= 2,
+    text: '账没还上。炳叔看了他半天，叹了口气：“人还实在。去阿杰那个厂里做吧，工资我按月扣。”潘潘点点头。欠的钱，总归要还。' },
+  { id: 'runaway', icon: '🏃', title: '连夜跑路', when: () => true,
+    text: '账没还上，人情也用光了。潘潘半夜拖着行李箱出了城中村，没敢开灯。这座城市没留住他，债主倒是还记得他。' },
+];
+export const ending = (s, score) => ENDINGS.find(e => e.when(s, score));
 
 // 结算时的总结：把这一局做过的事写成几段话
 export function summary(s, score, name) {

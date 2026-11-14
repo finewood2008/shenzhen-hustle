@@ -477,7 +477,7 @@ export function createStreet(renderer, el, handlers) {
     if (handlers.canMove()) { right += stick.x; fwd += stick.y; }
     const fp = view === 'fp', heading = fp ? yaw : az; // 键盘方向相对镜头：W 是往画面深处走
     if (turn) { if (fp) { yaw = wrap(yaw - turn * TURN * dt); turnTo = null; } else az = wrap(az + turn * TURN * dt); }
-    let dx = 0, dz = 0, step = SPEED * dt;
+    let dx = 0, dz = 0, step = SPEED * (handlers.speed ? handlers.speed() : 1) * dt; // 骑电单车走得快
     if (right || fwd) {
       target = null; pending = null; chase = null; marker.visible = false; turnTo = null;
       const len = Math.hypot(right, fwd), sn = Math.sin(heading), cs = Math.cos(heading);

@@ -1,5 +1,5 @@
 // 纯玩法逻辑，不依赖任何渲染或 DOM，可以在 Node 里直接跑。
-import { CONFIG, DISTRICTS, GOODS, RANKS } from './content.js';
+import { CONFIG, DISTRICTS, GOODS, RANKS, VEHICLES, NEWS } from './content.js';
 import { EVENT_SCENES } from './story.js';
 
 const GOOD = Object.fromEntries(GOODS.map(g => [g.id, g]));
@@ -22,9 +22,10 @@ function genMarket(s, districtId, surge) {
   for (const g of GOODS) {
     const forced = surge && surge.good === g.id;
     if (!forced && rnd(s) > 0.7) continue;
-    let p = g.min + (g.max - g.min) * rnd(s);
-    if (g.origin === districtId) p *= 0.65;
-    if (g.demand === districtId) p *= 1.3;
+    const u = 0.5 + (rnd(s) + rnd(s) - 1) * 0.5 * CONFIG.priceSpread; // 两个随机数相加：中间多、两头少
+    let p = g.min + (g.max - g.min) * u;
+    if (g.origin === districtId) p *= CONFIG.originMult;
+    if (g.demand === districtId) p *= CONFIG.demandMult;
     if (forced) p *= surge.mult;
     m[g.id] = Math.max(1, Math.round(p));
   }
@@ -39,7 +40,7 @@ function rollForecast(s) {
     district: r.pick(DISTRICTS.filter(d => d.id !== s.loc)).id, // 当前所在区去不了，消息没用
     good: r.pick(GOODS).id,
     up,
-    mult: up ? 2.2 + rnd(s) * 1.3 : 0.25 + rnd(s) * 0.2,
+    mult: up ? CONFIG.rumorUp[0] + rnd(s) * (CONFIG.rumorUp[1] - CONFIG.rumorUp[0]) : CONFIG.rumorDown[0] + rnd(s) * (CONFIG.rumorDown[1] - CONFIG.rumorDown[0]),
   };
   s.forecast = {};
   for (const d of DISTRICTS) {
@@ -55,6 +56,8 @@ export function newGame(seed = (Math.random() * 2 ** 31) | 0) {
     favor: 0, flags: {}, seen: {}, pendingEvent: null,
     orders: [], offer: null, haggled: {}, talked: {},
     stats: { buys: 0, sells: 0, delivered: 0, expired: 0, haggleWin: 0, caught: 0, peak: CONFIG.startCash }, // 结算时写总结用
+    vehicle: null, freeMove: false, // 交通工具；freeMove：面包车今天还能不过夜地再跑一趟
+    news: null, // 今日大事的 id
     shady: null, // 今天的烧心货：{ good, state: 'offer' | 'open' | 'refused' }
     // 已接的订单、等你答复的订单、今天砍过价的档口
     // 剧情：人情值、剧情标记、已触发的场景
@@ -99,7 +102,7 @@ export function sell(s, id, qty) {
   const it = s.inv[id];
   if (s.over || !it || !s.market[id] || !(qty > 0) || qty > it.qty) return false;
   // 烧心货先出手；有四成机会被当场退货：这部分钱收不到，货也没了，还丢人情
-  const bad = Math.min(badQty(s, id), qty), caught = bad > 0 && rnd(s) < CONFIG.shadyCatch;
+  const bad = Math.min(badQty(s, id), qty), caught = bad > 0 && (newsOf(s).catchAll || rnd(s) < CONFIG.shadyCatch);
   s.cash += s.market[id] * (caught ? qty - bad : qty);
   if (caught) { s.favor -= 1; stat(s).caught++; }
   stat(s).sells++; stat(s).peak = Math.max(stat(s).peak, s.cash);
@@ -184,9 +187,10 @@ export function deliver(s, i) {
 }
 
 // 砍价：每个档口每天一次。成功则这个档口今天的价格全线下调，失败则上调。返回 'win' | 'lose' | null
-export const haggleChance = s => Math.max(0.15, Math.min(0.8, CONFIG.haggleBase + s.favor * CONFIG.haggleFavor));
+export const canHaggle = s => !newsOf(s).noHaggle;
+export const haggleChance = s => Math.max(0.15, Math.min(0.9, CONFIG.haggleBase + s.favor * CONFIG.haggleFavor + (newsOf(s).haggle || 0)));
 export function haggle(s, stallId, goodIds) {
-  if (s.over || s.haggled[stallId] || !goodIds.some(id => s.market[id])) return null;
+  if (s.over || !canHaggle(s) || s.haggled[stallId] || !goodIds.some(id => s.market[id])) return null;
   const win = rnd(s) < haggleChance(s);
   for (const id of goodIds) if (s.market[id]) s.market[id] = Math.max(1, Math.round(s.market[id] * (win ? CONFIG.haggleWin : CONFIG.haggleLose)));
   if (win) stat(s).haggleWin++;
@@ -202,24 +206,82 @@ export function borrow(s, n) {
 }
 
 // 前往另一个区：过一天、计息、换行情、可能触发事件
-export function travel(s, to) {
-  if (s.over || to === s.loc || isLastDay(s) || !s.forecast[to]) return null;
-  s.day++;
-  s.debt = Math.ceil(s.debt * (1 + CONFIG.debtRate));
-  s.bank = Math.floor(s.bank * (1 + CONFIG.bankRate));
-  s.loc = to;
-  s.market = s.forecast[to];
-  s.haggled = {}; s.talked = {};
-  const res = { rumorHit: s.rumor.district === to ? s.rumor : null, expired: s.orders.filter(o => o.deadline < s.day) };
-  if (res.expired.length) { // 过期的订单作废，丢人情
+// 今日大事
+export const newsOf = s => NEWS.find(n => n.id === s.news) || {};
+function applyNews(s) { // 把今天的大事落到当前这个区的行情上
+  const n = newsOf(s);
+  if (n.mult) for (const id of Object.keys(s.market)) if (!n.goods || n.goods.includes(id)) s.market[id] = Math.max(1, Math.round(s.market[id] * n.mult));
+}
+
+// 交通工具：只能在租仓点买，可以从电单车换成面包车
+export const vehicleOf = s => VEHICLES[s.vehicle] || null;
+export function canBuyVehicle(s, id) {
+  const v = VEHICLES[id], cur = vehicleOf(s);
+  return !!v && !s.over && here(s, 'storage') && s.vehicle !== id && (!cur || v.cap > cur.cap) && s.cash >= v.cost;
+}
+export function buyVehicle(s, id) {
+  if (!canBuyVehicle(s, id)) return false;
+  const v = VEHICLES[id], cur = vehicleOf(s);
+  s.cash -= v.cost;
+  s.capacity += v.cap - (cur ? cur.cap : 0);
+  s.vehicle = id;
+  return true;
+}
+// 现在还能不能换区：最后一天不行，除非面包车今天还剩一趟
+export const freeMoveReady = s => s.vehicle === 'van' && s.freeMove;
+export const canTravel = s => !s.over && (!isLastDay(s) || freeMoveReady(s));
+
+// 过期的订单作废，丢人情。返回这次作废的订单
+function expireOrders(s) {
+  const gone = s.orders.filter(o => o.deadline < s.day);
+  if (gone.length) {
     s.orders = s.orders.filter(o => o.deadline >= s.day);
-    s.favor -= res.expired.length;
-    stat(s).expired += res.expired.length;
+    s.favor -= gone.length;
+    stat(s).expired += gone.length;
   }
+  return gone;
+}
+
+// 到了一个区之后要做的事：重置当天的砍价和搭话，抽事件、订单、烧心货
+function arrive(s, to) {
+  s.loc = to;
+  s.haggled = {}; s.talked = {};
+  applyNews(s);
   s.pendingEvent = rollEvent(s);
   s.offer = rollOffer(s);
   const onSale = Object.keys(s.market);
-  s.shady = rnd(s) < CONFIG.shadyChance && onSale.length ? { good: helpers(s).pick(onSale), state: 'offer' } : null;
+  s.shady = !newsOf(s).catchAll && rnd(s) < CONFIG.shadyChance && onSale.length ? { good: helpers(s).pick(onSale), state: 'offer' } : null;
+}
+
+// 前往另一个区：过一天、计息、换行情、可能触发事件。
+// 开面包车时，每天的第二趟不过夜：日期不变、不计息，行情是那个区今天的。
+export function travel(s, to) {
+  if (!canTravel(s) || to === s.loc || !s.forecast[to]) return null;
+  const v = vehicleOf(s), fuel = v ? Math.min(s.cash, v.fuel) : 0;
+  s.cash -= fuel;
+  if (freeMoveReady(s)) {
+    s.freeMove = false;
+    s.market = genMarket(s, to, null);
+    arrive(s, to);
+    return { rumorHit: null, expired: [], free: true, fuel, news: null };
+  }
+  s.day++;
+  const hadNews = s.news;
+  s.news = rnd(s) < CONFIG.newsChance ? helpers(s).pick(NEWS.filter(n => n.id !== hadNews)).id : null;
+  const n = newsOf(s);
+  if (!n.noInterest) s.debt = Math.ceil(s.debt * (1 + CONFIG.debtRate));
+  s.bank = Math.floor(s.bank * (1 + CONFIG.bankRate));
+  if (n.health) s.health += n.health;
+  // 赶路的疲劳：有车就轻松些
+  s.health -= Math.max(0, CONFIG.fatigue - (s.vehicle === 'van' ? 2 : s.vehicle === 'ebike' ? 1 : 0));
+  // 房租饭钱：付不起就饿一天
+  const living = Math.min(s.cash, CONFIG.livingCost);
+  s.cash -= living;
+  if (living < CONFIG.livingCost) s.health -= 6;
+  s.market = s.forecast[to];
+  const res = { rumorHit: s.rumor.district === to ? s.rumor : null, expired: expireOrders(s), free: false, fuel, news: s.news, living, hungry: living < CONFIG.livingCost };
+  arrive(s, to);
+  s.freeMove = s.vehicle === 'van';
   rollForecast(s);
   return res;
 }
@@ -230,7 +292,7 @@ export function checkCollapse(s) {
   const fee = Math.floor(s.cash * 0.2);
   s.cash -= fee; s.health = 50;
   s.day = Math.min(CONFIG.days, s.day + 2);
-  return { fee };
+  return { fee, expired: expireOrders(s) }; // 躺的这两天里到期的订单也算过期
 }
 
 export function settle(s) {

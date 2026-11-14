@@ -6,23 +6,36 @@ export const CONFIG = {
   days: 30,          // 一局的总天数
   startCash: 3000,
   startDebt: 6000,
-  debtRate: 0.05,    // 欠款日息
+  debtRate: 0.04,    // 欠款日息
   bankRate: 0.008,   // 存款日息
   capacity: 100,     // 初始背包容量
   storageStep: 50,   // 每次扩容增加的容量
   storageMax: 300,
   storageCost: 4000, // 第 n 次扩容花费 = storageCost * n
-  clinicCost: 60,    // 每点体力的花费
+  clinicCost: 30,    // 每点体力的花费
+  // 行情：每样货每天的价格 = 最低价 + (最高价 − 最低价) × u，u 以 0.5 为中心、在 ±priceSpread/2 之内，越靠中间越常见
+  // 这一组数是用三种水平的模拟玩家各跑几百局调出来的：
+  // 乱逛的新手约三成亏本，会看行情的普通玩家中位十几二十万，熟悉产地销地的高手中位一两百万。
+  priceSpread: 0.6,
+  originMult: 0.8,   // 产地的价格倍数
+  demandMult: 1.2,   // 销地的价格倍数
+  rumorUp: [1.6, 2.2],     // 小道消息说“要涨”时的价格倍数范围
+  rumorDown: [0.45, 0.65], // 说“要跌”时
+  tagLow: 0.38, tagHigh: 0.62, // 面板上标“便宜 / 走俏”的分界（u 值）
+  fatigue: 3,        // 每换一次区掉多少体力；电单车和面包车各少掉 1 点、2 点
+  livingCost: 80,    // 每过一天的房租饭钱；付不起就饿着，掉体力
   eventChance: 0.4,
   orderChance: 0.45, // 每次到站被人找上门下订单的概率
   orderMax: 2,       // 同时最多接几单
-  orderPremium: 1.45, // 订单单价 = 这种货的中间价 × 这个倍数
+  orderPremium: 1.25, // 订单单价 = 这种货的中间价 × 这个倍数
   haggleBase: 0.35,  // 砍价的基础成功率，每点人情再加 haggleFavor
   haggleFavor: 0.07,
   haggleWin: 0.88,   // 砍价成功 / 失败后，这个档口今天的价格倍数
   haggleLose: 1.06,
   borrowBase: 10000, // 老乡会的借款额度 = borrowBase + 人情 × borrowFavor，减去已欠的
   borrowFavor: 3000,
+  newsChance: 0.45,  // 每过一天，出“今日大事”的概率
+  tipLie: 0.5,       // 路人给的行情消息是假的概率
   shadyChance: 0.3,  // 每次到站，有档口在卖“烧心货”的概率
   shadyPrice: 0.7,   // 烧心货的进价是正价的几成
   shadyCatch: 0.4,   // 转手卖烧心货被退货的概率
@@ -96,6 +109,29 @@ export const RANKS = [
 ];
 
 // 街区里的档口：每个档口经营一类商品
+// 交通工具：在宝安的租仓点买。cap 是多出来的背包容量，speed 是街上走路的倍速，fuel 是每趟的油钱。
+// 面包车一天能跑两趟：每天第二次换区不过夜。
+export const VEHICLES = {
+  ebike: { name: '二手电单车', icon: '🛵', cost: 2500, cap: 50, speed: 1.6, fuel: 0, desc: '背包 +50，街上走得快六成' },
+  van: { name: '二手面包车', icon: '🚐', cost: 18000, cap: 150, speed: 1, fuel: 150, desc: '背包 +150，每天能多跑一个区，每趟油钱 ¥150' },
+};
+
+// 今日大事：每过一天有概率出一条，当天改变规则。
+// mult + goods：这些货（不写 goods 就是全部）今天的价格倍数；其余字段见 logic.js
+const ELEC = ['led', 'powerbank', 'earbuds', 'phone', 'gpu', 'drone'];
+export const NEWS = [
+  { id: 'expo', title: '华强北电子展开幕', text: '全城都在找电子货，电子类今天贵两成半。', mult: 1.25, goods: ELEC },
+  { id: 'coupon', title: '全城发消费券', text: '人人都在花钱，今天所有货贵一成半。', mult: 1.15 },
+  { id: 'sale', title: '换季清仓日', text: '档口都在甩货，今天所有货便宜两成。', mult: 0.8 },
+  { id: 'typhoon', title: '台风黄色预警', text: '出门一趟掉 8 点体力；荔枝和生蚝运不进来，贵三成。', mult: 1.3, goods: ['lychee', 'oyster'], health: -8 },
+  { id: 'customs', title: '海关联合严查', text: '今天没人敢卖烧心货；手里有的，出手必被退。', catchAll: true },
+  { id: 'nightmarket', title: '夜市文化节', text: '老板们心情好，今天砍价成功率加两成半。', haggle: 0.25 },
+  { id: 'audit', title: '市场统一明码标价', text: '今天所有档口不讲价。', noHaggle: true },
+  { id: 'reunion', title: '老乡会年会', text: '炳叔高兴，昨晚的利息免了。', noInterest: true },
+  { id: 'chip', title: '显卡又缺货了', text: '二手显卡和无人机配件今天贵四成。', mult: 1.4, goods: ['gpu', 'drone'] },
+  { id: 'port', title: '口岸通关提速', text: '进口奶粉和翻新手机今天便宜三成。', mult: 0.7, goods: ['milk', 'phone'] },
+];
+
 // 档口老板的招呼语，按天轮换
 export const GREETINGS = {
   small: ['贵是贵点，但用了不烧机。', '便宜的隔壁有，炸不炸我可不敢说。', '我这的规矩：坏了包换，价钱不讲。', '先把规矩立住，一手钱一手货。'],
