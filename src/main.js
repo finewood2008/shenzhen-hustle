@@ -6,6 +6,7 @@ import { createScene } from './scene.js';
 import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene, ENDINGS, ending } from './story.js';
 import { getAccount, ensureAccount, rename, submitScore, fetchBoard } from './net.js';
 import { portrait } from './portraits.js';
+import { personArt, personName } from './people.js';
 import { PANPAN_ART } from './panpan.js';
 import { initAudio, applyAudioSettings, setMood, sfx } from './audio.js';
 import { settings, saveSettings, applySettings, heroName, nickname, THEMES, SIZES, SPEEDS, STATS, NAMES } from './settings.js';
@@ -42,7 +43,7 @@ const view = createScene($('#stage'), DISTRICTS, {
     onTalk(i) { // 走到路人跟前了
       const sc = playing() && walkerScene(s, i);
       if (!sc) { if (playing()) toast('他摆摆手：刚才不是聊过了嘛。', 2200); view.releaseWalker(i); return; }
-      startScene(sc, () => view.releaseWalker(i), s.day * 100 + DISTRICTS.indexOf(D[s.loc]) * 13 + i);
+      startScene(sc, () => view.releaseWalker(i), s.day * 100 + DISTRICTS.indexOf(D[s.loc]) * 13 + i, view.walkerPerson(i));
     },
   },
 });
@@ -305,9 +306,9 @@ function checkStory(then) {
   if (!sc) { if (then) then(); return; }
   startScene(sc, () => checkStory(then));
 }
-// 播放一段对话，播完调用 then。seed 决定路人长什么样
-function startScene(sc, then, seed = 0) {
-  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then, seed, them: null };
+// 播放一段对话，播完调用 then。seed 决定路人长什么样；person 是街上那个路人的角色，有就用它的立绘
+function startScene(sc, then, seed = 0, person = null) {
+  scene = { p: play(s, sc), timer: 0, full: '', shown: 0, cur: null, then, seed, person, them: null };
   // 一开场右边就先站好对话的另一方（这段里第一个出场的别人）
   const first = sc.lines.find(l => l.who !== 'me' && l.who !== 'narr');
   if (first) setThem(first.who, first.mood || 'plain');
@@ -357,8 +358,9 @@ function setThem(who, mood) {
   if (scene.them === key) return;
   const changed = !scene.them || scene.them.split(':')[0] !== who;
   scene.them = key;
-  dlg.them.art.innerHTML = portrait(who, mood, scene.seed);
-  dlg.them.tag.textContent = CAST[who].name;
+  const art = who === 'passer' && personArt(scene.person);
+  dlg.them.art.innerHTML = art ? `<img class="panpan person" src="${art}" alt="">` : portrait(who, mood, scene.seed);
+  dlg.them.tag.textContent = (art && personName(scene.person)) || CAST[who].name;
   if (changed) { dlg.them.el.style.animation = 'none'; void dlg.them.el.offsetWidth; dlg.them.el.style.animation = ''; }
 }
 function lineDone() {

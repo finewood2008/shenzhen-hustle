@@ -1,0 +1,56 @@
+{
+  "style": "stylized low poly game asset, isometric city-builder style, clean simple shapes, flat bright colors with soft shading, cute toy-like proportions, single building only, standing on a small flat square base, no people, no cars, no readable text, no logos",
+  "negative": "people, cars, text, logos, ground terrain, multiple separate buildings floating, blurry, broken mesh",
+  "buildings": {
+    "huaqiangbei": {
+      "district": "华强北",
+      "name": "电子大厦",
+      "prompt": "A 1990s Chinese electronics market tower, 12 floors, beige tiles and blue glass, the lower floors covered with colorful vertical shop signs and neon light boxes, a big LED screen on the facade, rooftop antenna mast"
+    },
+    "futian": {
+      "district": "福田 CBD",
+      "name": "金融塔",
+      "prompt": "A sleek supertall financial skyscraper, tapering glass tower with silver vertical fins, a pointed spire on top, a wide glass lobby podium at the base"
+    },
+    "luohu": {
+      "district": "罗湖",
+      "name": "口岸联检楼",
+      "prompt": "A large modern border crossing checkpoint building in a Chinese city, wide 3-story white and grey terminal with a long glass facade, a huge flat cantilevered roof canopy over the entrance plaza, big red Chinese-style roof sign frame (blank), rows of entrance doors, flagpoles in front, a covered pedestrian walkway, wide horizontal composition"
+    },
+    "dongmen": {
+      "district": "东门老街",
+      "name": "老街牌坊",
+      "prompt": "A traditional Chinese memorial archway gate with red pillars and green glazed tile roofs, flanked by two-story old Lingnan-style shophouses with arcade columns and red lanterns"
+    },
+    "keji": {
+      "district": "南山科技园",
+      "name": "双子总部",
+      "prompt": "Two modern tech company headquarters towers connected by a sky bridge, white frames and teal glass, rooftop gardens, a big plaza at the base"
+    },
+    "shekou": {
+      "district": "蛇口",
+      "name": "海上邮轮",
+      "prompt": "A retired white cruise ship permanently docked as a waterfront mall, two decks of windows, a red-and-blue funnel, string lights along the deck, on a small pier base"
+    },
+    "baoan": {
+      "district": "宝安西乡",
+      "name": "西乡工厂",
+      "prompt": "A Chinese factory compound, three-story white tiled workshop with blue window strips, a sawtooth roof shed beside it, a tall red-and-white chimney, a loading dock with a roll-up door"
+    },
+    "longhua": {
+      "district": "龙华",
+      "name": "握手楼",
+      "prompt": "A cluster of Chinese urban village \"handshake buildings\", four narrow 8-floor apartment blocks packed so close they almost touch, colorful tiles, balconies with metal security cages, air conditioners, laundry hanging, rooftop water tanks"
+    },
+    "dafen": {
+      "district": "大芬村",
+      "name": "画家村",
+      "prompt": "An art village gallery building, three-story colorful painted house with big arched windows, oil paintings on easels and hanging on the outside walls, a small courtyard with an art-shop awning"
+    },
+    "yantian": {
+      "district": "盐田港",
+      "name": "集装箱码头",
+      "prompt": "A container port scene: a big blue ship-to-shore gantry crane over stacks of colorful shipping containers, on a concrete quay base"
+    }
+  }
+}

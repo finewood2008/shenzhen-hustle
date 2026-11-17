@@ -3,3 +3,6 @@ test
 node_modules
 README.md
 tools
+.env.local
+assets/buildings/*.png
+assets/buildings/prompts.json

@@ -1,0 +1,34 @@
+{
+  "rider": {
+    "name": "外卖骑手",
+    "file": "rider.glb"
+  },
+  "guard": {
+    "name": "保安",
+    "file": "guard.glb"
+  },
+  "office": {
+    "name": "白领",
+    "file": "office.glb"
+  },
+  "streamer": {
+    "name": "网红主播",
+    "file": "streamer.glb"
+  },
+  "coder": {
+    "name": "程序员",
+    "file": "coder.glb"
+  },
+  "student": {
+    "name": "学生",
+    "file": "student.glb"
+  },
+  "auntie": {
+    "name": "广场舞阿姨",
+    "file": "auntie.glb"
+  },
+  "courier": {
+    "name": "快递小哥",
+    "file": "courier.glb"
+  }
+}

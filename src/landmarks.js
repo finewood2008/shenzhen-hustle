@@ -2,6 +2,71 @@
 // 地标：原点在地面中心，正面朝 +z，占地大约 14 × 10；街区里按原尺寸摆放，沙盘上缩小后摆放。
 import * as THREE from '../vendor/three.module.min.js';
 import { signBoard, painting } from './models.js';
+import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
+import { clone as cloneModel } from '../vendor/loaders/SkeletonUtils.js';
+
+// ---------- 外部模型（Tripo 等生成的 GLB） ----------
+// assets/buildings/index.json 列出哪些区有现成模型，例如 { "huaqiangbei": { "file": "huaqiangbei.glb", "rotY": 0 } }。
+// 可选字段：rotY 绕竖轴转多少度让正面朝 +z；fit 占地宽深（默认 [14, 10]）；height 直接指定高度（指定了就按高度缩放）。
+// 模型没加载完之前先用代码拼的地标，加载好后原地换掉；文件不存在或加载失败就一直用代码拼的。
+// 模型按需加载：进到哪个区就先下载哪个区的；页面空闲后再在后台一个一个把其余的下完（地图上的缩小版也会换上）。
+const glbs = {}, loading = {};
+let built = []; // 已经摆出去的地标 { id, g }，模型加载好后要换掉
+let manifest = null;
+const loader = new GLTFLoader();
+const manifestReady = fetch('assets/buildings/index.json').then(r => (r.ok ? r.json() : {})).catch(() => ({}))
+  .then(list => { manifest = list; return list; });
+function loadModel(id) {
+  if (loading[id]) return loading[id];
+  loading[id] = manifestReady.then(list => new Promise(done => {
+    const o = list[id];
+    if (!o || !o.file) return done(false);
+    loader.load('assets/buildings/' + o.file, gl => {
+      glbs[id] = { scene: gl.scene, o };
+      built = built.filter(b => b.g.parent);
+      for (const b of built) if (b.id === id) swapIn(b.g, id);
+      done(true);
+    }, undefined, e => { console.warn(`地标模型 ${o.file} 加载失败，继续用代码拼的`, e); done(false); });
+  }));
+  return loading[id];
+}
+// 首屏之后在后台依次加载剩下的，避免一打开页面就同时下载十几 MB
+manifestReady.then(list => setTimeout(async () => {
+  for (const id of Object.keys(list)) await loadModel(id);
+}, 6000));
+
+function fitModel(id) {
+  const { scene, o } = glbs[id];
+  const model = cloneModel(scene); // 带骨骼的模型也能正确复制
+  model.traverse(m => {
+    if (!m.isMesh) return;
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+    // 统一换成和场景其余部分一样的 Lambert 材质，光照风格一致，也更省
+    m.material = [].concat(m.material).map(src => new THREE.MeshLambertMaterial({ map: src.map || null, color: src.map ? 0xffffff : src.color, side: src.side, transparent: src.transparent, alphaTest: src.alphaTest }));
+    if (m.material.length === 1) m.material = m.material[0];
+  });
+  const holder = new THREE.Group();
+  model.rotation.y = THREE.MathUtils.degToRad(o.rotY || 0);
+  holder.add(model);
+  holder.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(holder), size = box.getSize(new THREE.Vector3());
+  const [fw, fd] = o.fit || [14, 10];
+  const s = o.height ? o.height / size.y : Math.min(fw / size.x, fd / size.z);
+  holder.scale.setScalar(s);
+  const c = box.getCenter(new THREE.Vector3());
+  model.position.set(-c.x, -box.min.y, -c.z);
+  holder.userData.keep = true; // 换区时不要释放共享的贴图
+  return holder;
+}
+function swapIn(g, id) {
+  for (const ch of [...g.children]) {
+    g.remove(ch);
+    ch.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { if (m.map) m.map.dispose(); m.dispose(); } });
+  }
+  g.add(fitModel(id));
+  g.userData.tick = null;
+}
+
 
 export function kit(g) {
   const lam = c => new THREE.MeshLambertMaterial({ color: c });
@@ -330,7 +395,8 @@ export function buildLandmark(id, mini = false) {
   const def = LANDMARKS[id];
   if (!def) return null;
   const g = new THREE.Group();
-  g.userData.tick = def.build(kit(g), mini) || null;
+  if (glbs[id]) { g.add(fitModel(id)); g.userData.tick = null; }
+  else { g.userData.tick = def.build(kit(g), mini) || null; built.push({ id, g }); if (!mini) loadModel(id); }
   g.userData.name = def.name;
   g.userData.mapScale = def.mapScale;
   return g;

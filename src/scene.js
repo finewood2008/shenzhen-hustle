@@ -5,6 +5,7 @@ import { labelSprite } from './models.js';
 import { createStreet } from './street.js';
 import { makePanpan, onPanpan } from './panpan.js';
 import { buildLandmark } from './landmarks.js';
+import { buildingMaterials, BUILDING_STYLE } from './buildings.js';
 
 const DAY = new THREE.Color(0xa8d8f0), NIGHT = new THREE.Color(0x0e1633);
 
@@ -222,8 +223,9 @@ export function createScene(container, districts, handlers) {
       if (lm && Math.hypot(x, z + 1) < lmR + w / 2) continue; // 给地标留位置
       if (placed.some(p => Math.hypot(p.x - x, p.z - z) < (p.w + w) * 0.62)) continue;
       const hh = Math.min(h, st.h[1]);
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, w * (0.8 + r() * 0.4)),
-        new THREE.MeshLambertMaterial({ color }));
+      const dd = w * (0.8 + r() * 0.4), K = 3.5; // 沙盘上的楼按 1:3.5 画窗户
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, dd),
+        buildingMaterials(BUILDING_STYLE[d.id] || 'street', color, w * K, hh * K, dd * K, placed.length));
       m.position.set(x, hh / 2 + 0.14, z);
       m.castShadow = true; m.receiveShadow = true;
       g.add(m);
@@ -462,6 +464,7 @@ export function createScene(container, districts, handlers) {
     emote(name, maxSec) { street.emote(name, maxSec); },
     releaseWalker(i, icon) { street.releaseWalker(i, icon); },
     setStreetView(v) { street.setView(v); },
+    walkerPerson(i) { return street.walkerPerson(i); },
     enterStreet(district, idx, spots, startX, startYaw) { street.enter(district, idx, spots, startX, startYaw); this.setMode('street'); },
     // rumor: { district, text, up } 或 null
     setRumor(rumor) {

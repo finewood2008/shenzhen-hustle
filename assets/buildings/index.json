@@ -1,0 +1,50 @@
+{
+  "huaqiangbei": {
+    "rotY": -90,
+    "file": "huaqiangbei.glb",
+    "height": 24
+  },
+  "futian": {
+    "rotY": -90,
+    "file": "futian.glb",
+    "height": 42
+  },
+  "longhua": {
+    "rotY": -90,
+    "file": "longhua.glb",
+    "height": 20
+  },
+  "luohu": {
+    "rotY": -90,
+    "file": "luohu.glb"
+  },
+  "dongmen": {
+    "rotY": -90,
+    "file": "dongmen.glb"
+  },
+  "keji": {
+    "rotY": -90,
+    "file": "keji.glb",
+    "height": 24
+  },
+  "shekou": {
+    "rotY": -90,
+    "file": "shekou.glb",
+    "height": 12
+  },
+  "baoan": {
+    "rotY": -90,
+    "file": "baoan.glb",
+    "height": 16
+  },
+  "dafen": {
+    "rotY": -90,
+    "file": "dafen.glb",
+    "height": 14
+  },
+  "yantian": {
+    "rotY": -90,
+    "file": "yantian.glb",
+    "height": 18
+  }
+}

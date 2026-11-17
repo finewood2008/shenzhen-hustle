@@ -4,9 +4,11 @@
 // 按所在区的布局生成一条街，两侧有档口，地标在街东头或正对街尾。
 // 只负责画面、走动和“靠近了谁”，不知道任何买卖规则。
 import * as THREE from '../vendor/three.module.min.js';
-import { labelSprite, signBoard, makeFigure, animateFigure, facadeMaterials, tileTexture } from './models.js';
+import { labelSprite, signBoard, makeFigure, animateFigure, tileTexture } from './models.js';
 import { kit, palm, buildLandmark, decorate, SHOPS, SHOP_COLORS, PALM_DISTRICTS } from './landmarks.js';
 import { STREETS, buildSouth, capBuilding } from './streetscape.js';
+import { makeBuilding, buildingMaterials, BUILDING_STYLE } from './buildings.js';
+import { loadPeople, onPerson, personId, makePerson } from './people.js';
 import { makePanpan, onPanpan } from './panpan.js';
 
 const Z_MIN = -4.4, Z_MAX = 4.6, X_MIN = -21;
@@ -58,12 +60,27 @@ export function createStreet(renderer, el, handlers) {
     (function walk(o) {
       if (o.userData.keep) return; // 潘潘的模型要留着下次用
       if (o.geometry) o.geometry.dispose();
-      for (const m of [].concat(o.material || [])) { if (m.map) m.map.dispose(); m.dispose(); }
+      for (const m of [].concat(o.material || [])) { if (m.userData.shared) continue; if (m.map && !m.map.userData.shared) m.map.dispose(); m.dispose(); }
       o.children.forEach(walk);
     })(root);
   }
 
+  // 路人换上 Tripo 角色：模型加载好了就把代码拼的小人藏起来
+  function dress(w) {
+    if (w.p || !w.pid) return;
+    const p = makePerson(w.pid, w.height);
+    if (!p) return;
+    w.p = p; w.fig.visible = false;
+    w.speed = p.stride * (0.85 + ((w.i * 37) % 10) / 30); // 按动作的步幅走，快慢略有不同
+    w.f.add(p.root);
+  }
+  let curIdx = 0;
+  onPerson(() => { // 角色陆续加载好：分配角色并给现有路人换上
+    for (const w of walkers) { if (!w.pid) w.pid = personId(curIdx * 5 + w.i); dress(w); }
+  });
+
   function build(d, idx, defs) {
+    loadPeople(); curIdx = idx;
     if (world) { scene.remove(world); dispose(world); player = null; }
     world = new THREE.Group();
     scene.add(world);
@@ -95,6 +112,7 @@ export function createStreet(renderer, el, handlers) {
     // 一排临街楼。side 'n' 在北侧朝南，'s' 在南侧朝北；z 是楼正面离街心的距离
     const shops = SHOPS[d.id] || [];
     let shopIdx = 0;
+    const bstyle = BUILDING_STYLE[d.id] || 'street';
     function row(o) {
       const g = new THREE.Group();
       if (o.side === 's') g.rotation.y = Math.PI;
@@ -106,8 +124,9 @@ export function createStreet(renderer, el, handlers) {
         const w = Math.min(wr[0] + r() * (wr[1] - wr[0]), b - x);
         const h = o.h ? o.h() : 5 + (st.h[0] + r() * (st.h[1] - st.h[0])) * 2.2;
         const cx = x + w / 2;
-        const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, 8), facadeMaterials(pal(), w, h));
-        body.position.set(cx, h / 2, z - 4); body.castShadow = true; body.receiveShadow = true;
+        const style = o.style || (o.plain && bstyle === 'village' && h > 16 ? 'street' : bstyle);
+        const body = makeBuilding({ style, color: pal(), w, h, r, skipGround: !o.plain, far: !!o.plain && (o.z ?? 9.5) > 15, variant: bi + Math.floor(x) });
+        body.position.set(cx, h / 2, z - 4);
         g.add(body);
         if (!o.plain) {
           rk.box(w - 0.5, 2.5, 0.3, 0x2b3648, cx, 1.25, z + 0.1).castShadow = false;
@@ -126,10 +145,6 @@ export function createStreet(renderer, el, handlers) {
             s.position.set(cx, 6.5 + r() * 3, z + 0.05);
             g.add(s);
           }
-          if (h < 26) {
-            rk.box(1, 0.6, 0.8, 0x9ca3af, cx - w / 4, h + 0.3, z - 2);
-            if (r() < 0.6) rk.cyl(0.55, 0.55, 1, 0xcbd5e1, cx + w / 5, h + 0.5, z - 3);
-          }
         }
         x += w + 0.3;
       }
@@ -145,8 +160,8 @@ export function createStreet(renderer, el, handlers) {
     if (t0) ticks.push(t0);
     // 街道两头收口
     const capH = () => 8 + (st.h[0] + r() * (st.h[1] - st.h[0])) * 2.4;
-    let h = capH(); capBuilding(k, -43, Math.PI / 2, h, facadeMaterials(pal(), 19, h));
-    if (!conf.water) { h = capH() + (atEnd ? 6 : 0); capBuilding(k, atEnd ? 50 : 46, -Math.PI / 2, h, facadeMaterials(pal(), 19, h)); }
+    let h = capH(); capBuilding(k, -43, Math.PI / 2, h, buildingMaterials(bstyle, pal(), 19, h, 8, 1));
+    if (!conf.water) { h = capH() + (atEnd ? 6 : 0); capBuilding(k, atEnd ? 50 : 46, -Math.PI / 2, h, buildingMaterials(bstyle, pal(), 19, h, 8, 2)); }
 
     // 云
     for (let i = 0; i < 9; i++) {
@@ -261,19 +276,22 @@ export function createStreet(renderer, el, handlers) {
 
     // 路人
     for (let i = 0; i < 12; i++) {
-      const f = makeFigure({
+      const fig = makeFigure({
         shirt: SHIRTS[Math.floor(r() * SHIRTS.length)], pants: PANTS[Math.floor(r() * PANTS.length)],
         hair: HAIR[Math.floor(r() * HAIR.length)], pack: r() < 0.3 ? 0x475569 : null, scale: 0.98 + r() * 0.24,
         hairStyle: ['short', 'short', 'long', 'long', 'bun', 'cap', 'bald'][Math.floor(r() * 7)],
         hat: SHIRTS[Math.floor(r() * SHIRTS.length)], skirt: r() < 0.22, bag: r() < 0.35 ? PANTS[Math.floor(r() * PANTS.length)] : null,
         build: 0.9 + r() * 0.3,
       });
+      const f = new THREE.Group();
+      f.add(fig);
       const dir = r() < 0.5 ? -1 : 1;
       f.position.set(X_MIN - 1 + r() * (xMax - X_MIN), 0, -3.4 + r() * 7.2);
       f.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       f.userData.noCut = true;
       world.add(f);
-      const w = { i, f, dir, speed: 1.2 + r() * 1.4, phase: r() * 6, talking: false, mark: null };
+      const w = { i, f, fig, p: null, pid: personId(idx * 5 + i), height: 1.95 + r() * 0.3, dir, speed: 1.2 + r() * 1.4, phase: r() * 6, talking: false, mark: null };
+      dress(w);
       const hit = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.1, 1.3), new THREE.MeshBasicMaterial({ visible: false }));
       hit.position.y = 1.05; hit.userData.walker = w;
       f.add(hit); pickables.push(hit);
@@ -526,7 +544,7 @@ export function createStreet(renderer, el, handlers) {
       if (wd < bestWD) { bestW = w; bestWD = wd; }
       if (w.talking || w === chase) { // 站住，面朝你
         if (w === chase) w.f.rotation.y = Math.atan2(pos.x - w.f.position.x, pos.z - w.f.position.z);
-        animateFigure(w.f, 0, false);
+        if (w.p) { w.p.play('idle'); w.p.update(dt); } else animateFigure(w.fig, 0, false);
         continue;
       }
       w.f.position.x += w.dir * w.speed * dt;
@@ -535,7 +553,7 @@ export function createStreet(renderer, el, handlers) {
       // 路人会绕开玩家，不从镜头里穿过去
       const ax = w.f.position.x - pos.x, az = w.f.position.z - pos.z;
       if (Math.abs(ax) < 3 && Math.abs(az) < 1.3) w.f.position.z = THREE.MathUtils.clamp(w.f.position.z + (az >= 0 ? 1 : -1) * 3 * dt, Z_MIN - 0.3, Z_MAX + 0.3);
-      animateFigure(w.f, t * (3 + w.speed * 2.4) + w.phase, true);
+      if (w.p) { w.p.play('walk', w.speed / w.p.stride); w.p.update(dt); } else animateFigure(w.fig, t * (3 + w.speed * 2.4) + w.phase, true);
     }
     for (const tick of ticks) tick(t);
 
@@ -555,6 +573,8 @@ export function createStreet(renderer, el, handlers) {
     refreshPlayer() { if (world) makePlayer(); },
     // 让潘潘做一个一次性动作：jump / hurt / fall 等
     emote(name, maxSec) { if (pan) pan.emote(name, maxSec); },
+    // 第 i 个路人是哪个角色（对话头像用）
+    walkerPerson(i) { const w = walkers[i]; return w && w.p ? w.pid : null; },
     // 聊完了：路人接着走，头顶的标记换成新的（通常是去掉）
     releaseWalker(i, icon = null) {
       const w = walkers[i];

@@ -1,0 +1,14 @@
+{
+  "style": "cute stylized 3D character, chibi toy figure proportions with a slightly big head, smooth rounded shapes, clean bright colors, friendly face, full body, standing straight in A-pose with arms slightly away from the body, legs apart, facing front, single character, no base, no background",
+  "negative": "multiple characters, base, pedestal, weapon, text, logo, sitting, holding large objects, merged arms, blurry, broken mesh",
+  "people": {
+    "rider": { "name": "外卖骑手", "prompt": "a young Chinese food delivery rider wearing a bright yellow delivery jacket and a yellow helmet, dark pants, sneakers" },
+    "office": { "name": "白领", "prompt": "a young Chinese office lady with a neat bob haircut, white blouse, grey pencil skirt, black flats, an ID badge on a lanyard" },
+    "coder": { "name": "程序员", "prompt": "a young Chinese male programmer with glasses and messy hair, plaid flannel shirt over a t-shirt, jeans, a small backpack" },
+    "auntie": { "name": "广场舞阿姨", "prompt": "a cheerful middle-aged Chinese auntie with short permed hair, bright red floral blouse, black trousers, comfy shoes" },
+    "student": { "name": "学生", "prompt": "a Chinese high school student in a blue and white tracksuit school uniform, short ponytail, white sneakers, a schoolbag" },
+    "guard": { "name": "保安", "prompt": "a Chinese security guard in a navy blue uniform with a peaked cap, black belt, black shoes" },
+    "streamer": { "name": "网红主播", "prompt": "a trendy young Chinese influencer girl with long hair, oversized pastel hoodie, short skirt, chunky white sneakers" },
+    "courier": { "name": "快递小哥", "prompt": "a young Chinese parcel courier in a dark green work vest over a white t-shirt, green cap, cargo pants, work boots" }
+  }
+}
