@@ -42,6 +42,23 @@ export const CAST = {
   officer: { name: '市场协管' },
   passer: { name: '路人' },
   director: { name: '短剧导演' },
+  // 各区插曲里的人物
+  wen: { name: '小雯', title: '跑口岸的姑娘' },
+  lan: { name: '阿兰', title: '足浴店技师' },
+  guang: { name: '光头佬' },
+  chen: { name: '陈总', title: '硬件公司创始人' },
+  xiaok: { name: '小K', title: 'AI 创业者' },
+  zhou: { name: '老周', title: '华强北老档主' },
+  hongyi: { name: '红姨', title: '相亲角热心人' },
+  lin: { name: '林小姐', title: '福田白领' },
+  kevin: { name: 'Kevin', title: '理财经理' },
+  amu: { name: '阿木', title: '街头歌手' },
+  mike: { name: 'Mike', title: '蛇口的英语老师' },
+  huang: { name: '黄厂长' },
+  fang: { name: '小芳', title: '流水线女工' },
+  haige: { name: '海哥', title: '三和大神' },
+  fan: { name: '阿梵', title: '大芬村画师' },
+  zhang: { name: '老张', title: '跑船的海员' },
 };
 
 export const SCENES = [
@@ -212,6 +229,407 @@ export const SCENES = [
     ],
   },
 ];
+
+// ---------- 各区插曲 ----------
+// 到了某个区才会触发的小故事，几段连着讲，隔几天再续。只动一点钱、体力、人情，不改主线。
+// 一天最多一段插曲；flags 里记着每条线走到哪一步、上次是哪天。
+// at: 'landmark' 表示走到本区地标跟前互动时才触发；不写就是一到这个区就触发
+function episode(id, loc, when, lines, at = null) {
+  const first = lines[0], fx = first.effect;
+  return {
+    id, episode: loc, at,
+    when: s => s.loc === loc && s.flags.epDay !== s.day && when(s),
+    lines: [{ ...first, effect: st => { st.flags.epDay = st.day; return fx ? fx(st) : ''; } }, ...lines.slice(1)],
+  };
+}
+const since = (s, key, n) => s.day - (s.flags[key] || 0) >= n;
+const mark = (s, key, val) => { s.flags[key] = val; s.flags[key + 'Day'] = s.day; return ''; };
+const tipText = s => {
+  const t = bestTip(s);
+  return t ? `明天${t.d.name}的${t.g.name}，${t.cheap ? '会便宜一截，可以去收' : '会涨一截，手上有就拿去卖'}。` : '最近行情乱，手上的货先别急着出。';
+};
+
+// 插曲里的买卖：按指定单价进货 / 出货（不走档口，不算砍价）
+function buyAt(s, id, qty, unit) {
+  const n = Math.min(free(s), qty, Math.floor(s.cash / Math.max(1, unit)));
+  if (n <= 0) return 0;
+  s.cash -= n * unit;
+  const it = s.inv[id] || (s.inv[id] = { qty: 0, cost: 0 });
+  it.qty += n; it.cost += n * unit;
+  return n;
+}
+function sellAt(s, id, qty, unit) {
+  const it = s.inv[id];
+  const n = it ? Math.min(it.qty, qty) : 0;
+  if (n <= 0) return 0;
+  s.cash += n * unit;
+  it.cost -= Math.round(it.cost * n / it.qty); it.qty -= n;
+  if (it.qty <= 0) delete s.inv[id];
+  return n;
+}
+const has = (s, id) => (s.inv[id] ? s.inv[id].qty : 0);
+const priceOf = (s, id) => (s.market && s.market[id]) || Math.round((GOOD[id].min + GOOD[id].max) / 2);
+// 插曲里的运气：由开局种子和天数决定，同一局重玩结果一样
+const luck = (s, salt) => ((((s.rng | 0) ^ Math.imul(s.day + 1, 2654435761) ^ Math.imul(salt, 40503)) >>> 0) % 1000) / 1000;
+
+const EPISODES = [
+  // ===== 罗湖·口岸边的小雯 =====
+  episode('wen_1', 'luohu', s => s.day >= 3 && !s.flags.wen, [
+    { who: 'narr', text: '你走到口岸联检楼门口。出关的扶梯上，一个姑娘拖着两个比她还宽的行李箱，一个轮子卡在了梯级里，后面的人开始骂。' },
+    { who: 'wen', mood: 'sad', text: '不好意思不好意思……马上好，马上好！', choices: [
+      { label: '过去帮她把箱子抬上来', effect: s => { mark(s, 'wen', 1); return hp(s, -3); }, to: 'help' },
+      { label: '绕开走，别惹麻烦', effect: s => mark(s, 'wen', 'no'), to: 'skip' },
+    ] },
+    { k: 'help', who: 'narr', text: '箱子沉得出奇。你憋着气把它扛上平台，里面哗啦响了一声，像是一整箱玻璃瓶。' },
+    { who: 'wen', mood: 'smile', text: '谢谢你啊！我叫小雯，天天在这条线上来回跑，帮人从香港带奶粉、面霜。你别看我小小只，一天过三趟关。' },
+    { who: 'wen', text: s => `你也是做生意的吧？看你那个包就知道。请你喝水太俗了，送你一句：${tipText(s)}` },
+    { who: 'me', text: '这你都知道？' },
+    { who: 'wen', mood: 'smile', text: '在口岸混的，耳朵比眼睛灵。下次见到我，记得打招呼！', effect: s => favor(s, 1), end: true },
+    { k: 'skip', who: 'narr', text: '你从旁边挤了过去。身后传来一句带着哭腔的“对不起”，很快被人群的声音盖住了。', end: true },
+  ], 'landmark'),
+  episode('wen_2', 'luohu', s => s.flags.wen === 1 && since(s, 'wenDay', 3), [
+    { who: 'narr', text: '你刚走到联检楼门口，突然下起大雨。屋檐底下挤满了避雨的人，你一眼就看到了那两个大箱子。' },
+    { who: 'wen', mood: 'smile', text: '又是你！走，我请你吃糖水，旁边那家双皮奶是罗湖最好吃的，没有之一。' },
+    { who: 'narr', text: '糖水铺里，她一边吹着热气一边算账：一罐奶粉赚十五块，一天三趟，刨掉车费，一个月能攒四千。' },
+    { who: 'wen', mood: 'sad', text: '上个月被海关扣过一次，整箱没收，白跑半个月。我妈让我回潮汕嫁人，我不想。我想在深圳开个小店，自己当老板，不用天天提心吊胆过关。', choices: [
+      { label: '“你一定能开成。缺什么跟我说。”', effect: s => { mark(s, 'wen', 2); s.flags.wenPath = 'shop'; return favor(s, 1); }, to: 'shop' },
+      { label: '“要不你的货我包了，省得你到处找下家。”', effect: s => { mark(s, 'wen', 2); s.flags.wenPath = 'deal'; const n = give(s, 'milk', 8); return n ? `进口奶粉 +${n}（她按成本给你）· ${pay(s, n * 120)}` : '背包满了，她说下次再给你留。'; }, to: 'deal' },
+      { label: '“跑水货终究不是长久之计。”', effect: s => mark(s, 'wen', 2), to: 'cold' },
+    ] },
+    { k: 'shop', who: 'wen', mood: 'smile', text: '你是第一个不劝我回家的人。这碗我请，下碗你请！', end: true },
+    { k: 'deal', who: 'wen', mood: 'smile', text: '爽快！我按进价给你，你别出去乱说啊。', end: true },
+    { k: 'cold', who: 'wen', text: '……我知道。可除了这个，我现在也不会别的。', end: true },
+  ], 'landmark'),
+  episode('wen_3', 'luohu', s => s.flags.wen === 2 && since(s, 'wenDay', 3) && s.day >= 12, [
+    { who: 'narr', text: '联检楼门口拉起了警戒线，今天严查。你正想绕开，电话响了，是小雯，声音在发抖。' },
+    { who: 'wen', mood: 'sad', text: '我在口岸里面……今天严查，我被拦下来了，货全扣了，还要交罚款，不交今晚走不了。我身上就剩两百块……你能不能先借我两千？我一定还你。', choices: [
+      { label: '马上转两千给她', ok: s => s.cash >= 2000, why: '现金不足 ¥2,000', effect: s => { mark(s, 'wen', 3); s.flags.wenLent = 2000; return pay(s, 2000) + ' · ' + favor(s, 2); }, to: 'lent' },
+      { label: '先转五百，剩下的让她找朋友', ok: s => s.cash >= 500, why: '现金不足 ¥500', effect: s => { mark(s, 'wen', 3); s.flags.wenLent = 500; return pay(s, 500) + ' · ' + favor(s, 1); }, to: 'half' },
+      { label: '“我手头也紧，实在帮不了。”', effect: s => mark(s, 'wen', 'gone'), to: 'no' },
+    ] },
+    { k: 'lent', who: 'wen', mood: 'sad', text: '……谢谢你。真的。我出来第一件事就是去找你。', end: true },
+    { k: 'half', who: 'wen', text: '够了够了，我再找姐妹凑凑。谢谢你。', end: true },
+    { k: 'no', who: 'wen', mood: 'sad', text: '嗯，没事……打扰你了。', effect: s => favor(s, -1), end: true },
+  ], 'landmark'),
+  episode('wen_4', 'luohu', s => s.flags.wen === 3 && since(s, 'wenDay', 3) && s.day >= 18, [
+    { who: 'narr', text: '联检楼前的广场上，小雯没有拖箱子。她穿了条新裙子，手里拿着一个信封，远远地朝你挥手。' },
+    { who: 'wen', mood: 'smile', text: s => `还你的，${yuan(s.flags.wenLent || 0)}，一分不少，外加一点利息——你别跟炳叔学，我这是心意。`,
+      effect: s => { const n = Math.round((s.flags.wenLent || 0) * 1.2); s.cash += n; return `现金 +${yuan(n)}`; } },
+    { who: 'wen', text: '我不跑水货了。东门有个档口要转让，我凑够了首付。下个月开张，卖港货，正正经经开票的那种。' },
+    { who: 'wen', mood: 'smile', text: '开张那天……你会来吗？', choices: [
+      { label: '“一定来，我还要当你第一个客人。”', effect: s => { mark(s, 'wen', 'together'); return favor(s, 1); }, to: 'yes' },
+      { label: '“恭喜你。以后就是小雯老板了。”', effect: s => mark(s, 'wen', 'friend'), to: 'friend' },
+    ] },
+    { k: 'yes', who: 'wen', mood: 'smile', text: '那说定了！不来的话，我就天天去你档口门口放鞭炮。', end: true },
+    { k: 'friend', who: 'wen', mood: 'smile', text: '嗯！以后进货找我，给你最低价。', end: true },
+  ], 'landmark'),
+
+  // ===== 罗湖·足浴店的阿兰 =====
+  episode('lan_1', 'luohu', s => s.day >= 3 && s.health <= 80 && !s.flags.lan, [
+    { who: 'narr', text: '你的腿像灌了铅。巷子口一块灯箱一闪一闪：“沐足 68 元，送凉茶”。' },
+    { who: 'narr', text: '要不要进去歇歇脚？', choices: [
+      { label: '进去泡个脚（¥68）', ok: s => s.cash >= 68, why: '现金不足 ¥68', effect: s => { mark(s, 'lan', 1); return pay(s, 68) + ' · ' + hp(s, 25); }, to: 'in' },
+      { label: '省点钱，继续赶路', to: 'out' },
+    ] },
+    { k: 'in', who: 'lan', mood: 'smile', text: '老板第一次来吧？水温合适不？我叫阿兰，湖南邵阳的。你这脚底板，一看就是一天走了两万步。' },
+    { who: 'lan', text: '我在这干了三年了。女儿在老家跟她外婆，今年上一年级。等我攒够钱，就把她接过来，在深圳读书。' },
+    { who: 'lan', mood: 'smile', text: '你别笑我啊，我手机里全是她的照片。你看，这个缺门牙的就是她。', choices: [
+      { label: '“真可爱。给她买点糖。”（小费 ¥50）', ok: s => s.cash >= 50, why: '现金不足 ¥50', effect: s => pay(s, 50) + ' · ' + favor(s, 1), to: 'tip' },
+      { label: '“接过来好，孩子跟着妈最好。”', to: 'talk' },
+    ] },
+    { k: 'tip', who: 'lan', mood: 'smile', text: '哎呀，这怎么好意思……那我替她谢谢叔叔！', end: true },
+    { k: 'talk', who: 'lan', mood: 'smile', text: '是吧！我也这么想。下次累了再来，给你多按十分钟。', end: true },
+    { k: 'out', who: 'narr', text: '你咬咬牙走了过去。凉茶的味道在身后飘了很远。', end: true },
+  ]),
+  episode('lan_2', 'luohu', s => s.flags.lan === 1 && since(s, 'lanDay', 2), [
+    { who: 'narr', text: '足浴店门口吵成一团。老板娘叉着腰，把一沓钱拍在桌上又收了回去。' },
+    { who: 'lan', mood: 'sad', text: '我没有得罪客人！那天下午我就接了一个客人，就是……就是你啊！你还给了小费的！' },
+    { who: 'narr', text: '老板娘说有人投诉阿兰“态度不好”，要扣她八百块。可那天下午，店里确实只有你一个客人。', choices: [
+      { label: '站出来：“那天的客人就是我，我没投诉。”', effect: s => { mark(s, 'lan', 2); s.flags.lanHelped = true; return favor(s, 2); }, to: 'stand' },
+      { label: '别掺和别人店里的事', effect: s => mark(s, 'lan', 2), to: 'leave' },
+    ] },
+    { k: 'stand', who: 'narr', text: '老板娘的脸红一阵白一阵，嘟囔着“搞错了搞错了”，把八百块塞回了阿兰手里。' },
+    { who: 'lan', mood: 'smile', text: '你……谢谢你。这是我自己做的剁辣椒，带上，下饭的。走那么多路，要吃饱。', effect: s => hp(s, 10), end: true },
+    { k: 'leave', who: 'narr', text: '你低头走开了。身后，阿兰没再争，只是蹲在门口数着剩下的钱。', effect: s => favor(s, -1), end: true },
+  ]),
+  episode('lan_3', 'luohu', s => s.flags.lan === 2 && s.flags.lanHelped && since(s, 'lanDay', 2) && s.cash >= 1500, [
+    { who: 'narr', text: '一个光头男人挡住了你的路，脖子上的金链子比阿彪的还粗。' },
+    { who: 'guang', mood: 'smile', text: '兄弟，阿兰让我来找你的。她说上次的事要好好谢谢你，在楼上开了间房，请你上去坐坐，喝两杯。', choices: [
+      { label: '跟他上楼看看', effect: s => { const n = Math.min(3000, Math.round(s.cash * 0.4)); mark(s, 'lan', 'trap'); return '你上了当，被“讲数”讹走了 ' + pay(s, n).replace('现金 -', ''); }, to: 'trap' },
+      { label: '当着他的面给阿兰打电话', effect: s => { mark(s, 'lan', 3); return favor(s, 1); }, to: 'call' },
+      { label: '“不用了，我还有事。”', effect: s => mark(s, 'lan', 3), to: 'walk' },
+    ] },
+    { k: 'trap', who: 'narr', text: '房间里还有两个人。他们说你“欺负了他们的人”，不赔钱别想走。你掏光了身上的现金才脱身。阿兰后来红着眼说，她根本不认识那个光头。', end: true },
+    { k: 'call', who: 'lan', mood: 'angry', text: '什么光头？我没让任何人找你！你别跟他走，那是专门讹人的！' },
+    { who: 'guang', mood: 'angry', text: '……算你精。', end: true },
+    { k: 'walk', who: 'narr', text: '光头男人在背后啐了一口。后来你听说，这条街上有人专门打着技师的名号“仙人跳”。', end: true },
+  ]),
+  episode('lan_4', 'luohu', s => s.flags.lan === 3 && since(s, 'lanDay', 2) && s.day >= 16, [
+    { who: 'narr', text: '足浴店门口，阿兰牵着一个背着粉红书包的小女孩，门牙还没长齐。' },
+    { who: 'lan', mood: 'smile', text: '我女儿！接过来了！学位是社区帮忙找的，就在罗湖，下礼拜一开学。' },
+    { who: 'lan', mood: 'smile', text: '这张卡你拿着，我自己的钱充的，你来了随时找我，不收钱。在深圳，好人要有好报。',
+      effect: s => { s.flags.lan = 'done'; return hp(s, 30); } },
+    { who: 'narr', text: '小女孩躲在妈妈身后，冲你挥了挥手。', end: true },
+  ]),
+
+  // ===== 南山科技园·电梯里的陈总（地标：双子总部）=====
+  episode('keji_chen_1', 'keji', s => s.day >= 2 && !s.flags.chen, [
+    { who: 'narr', text: '你跟着人流挤进双子总部的电梯。门关上的一瞬间，一个穿灰卫衣的中年人也闪了进来，手里还拿着半个包子。' },
+    { who: 'chen', text: '小伙子，看你背着货。我问你个问题：同样一个蓝牙耳机，在华强北卖八十，到了我们这栋楼里卖八百，凭什么？', choices: [
+      { label: '“凭你们给它讲了个故事。”', effect: s => { mark(s, 'chen', 1); return favor(s, 1); }, to: 'good' },
+      { label: '“凭你们的东西质量好？”', effect: s => mark(s, 'chen', 1), to: 'ok' },
+      { label: '“我只管它在哪里便宜。”', effect: s => mark(s, 'chen', 'no'), to: 'no' },
+    ] },
+    { k: 'good', who: 'chen', mood: 'smile', text: '哈！说得对。东西是华强北的，故事是南山的。我姓陈，做无人机的。下次来，上二十八楼找我。', end: true },
+    { k: 'ok', who: 'chen', text: '一半对。质量是门票，故事才是价钱。有空上二十八楼坐坐。', end: true },
+    { k: 'no', who: 'chen', mood: 'smile', text: '也行，实在。叮——二十八楼到了，我先走了。', end: true },
+  ], 'landmark'),
+  episode('keji_chen_2', 'keji', s => s.flags.chen === 1 && since(s, 'chenDay', 2), [
+    { who: 'narr', text: '二十八楼的前台把你领进一间全是样机的会议室。陈总正趴在桌上拆一台无人机。' },
+    { who: 'chen', text: s => `我们换代，有一批上一代的无人机配件要清，按市价七折给你，${yuan(Math.round(priceOf(s, 'drone') * 0.7))} 一套。拿去倒，赚了算你的。`, choices: [
+      { label: '能拿多少拿多少（最多 5 套）', ok: s => s.cash >= priceOf(s, 'drone') * 0.7 && free(s) > 0, why: '现金或背包不够',
+        effect: s => { const n = buyAt(s, 'drone', 5, Math.round(priceOf(s, 'drone') * 0.7)); mark(s, 'chen', 2); s.flags.chenBought = n; return `无人机配件 +${n}`; }, to: 'buy' },
+      { label: '“陈总，我本小，先不了。”', effect: s => mark(s, 'chen', 2), to: 'pass' },
+    ] },
+    { k: 'buy', who: 'chen', mood: 'smile', text: '爽快。做生意就是这样，看准了就别磨叽。', end: true },
+    { k: 'pass', who: 'chen', text: '懂得收手也是本事。以后有好货我还记得你。', end: true },
+  ], 'landmark'),
+  episode('keji_chen_3', 'keji', s => s.flags.chen === 2 && since(s, 'chenDay', 3) && s.day >= 14, [
+    { who: 'narr', text: '双子总部楼下拉起了红色横幅，门口摆满了花篮：热烈庆祝敲钟上市。' },
+    { who: 'chen', mood: 'smile', text: '你来得巧！今天公司上市。三年前我也在华强北扛箱子，跟你现在一模一样。' },
+    { who: 'chen', mood: 'smile', text: '这个红包你拿着，不多，图个好意头。记住：别光倒货，有一天要做自己的东西。',
+      effect: s => { const n = s.flags.chenBought ? 2000 : 800; s.cash += n; mark(s, 'chen', 'done'); return `现金 +${yuan(n)} · ` + favor(s, 1); }, end: true },
+  ], 'landmark'),
+
+  // ===== 南山科技园·小K 的 AI 养龙虾 =====
+  episode('keji_ai_1', 'keji', s => s.day >= 4 && s.cash >= 3000 && !s.flags.ai, [
+    { who: 'narr', text: '科技园的咖啡店里，一个戴着 VR 眼镜的年轻人把 PPT 怼到了你面前。' },
+    { who: 'xiaok', mood: 'smile', text: '哥，给你看个大项目：AI 养龙虾！摄像头盯着每一只虾，AI 算它什么时候饿、什么时候脱壳。今天天使轮，三千块一个点，错过就是错过一个时代！', choices: [
+      { label: '投三千，赌一把', ok: s => s.cash >= 3000, why: '现金不足 ¥3,000', effect: s => { mark(s, 'ai', 1); s.flags.aiBet = 3000; return pay(s, 3000); }, to: 'in' },
+      { label: '投一千意思意思', ok: s => s.cash >= 1000, why: '现金不足 ¥1,000', effect: s => { mark(s, 'ai', 1); s.flags.aiBet = 1000; return pay(s, 1000); }, to: 'in' },
+      { label: '“龙虾不会自己找饲料吗？”', effect: s => mark(s, 'ai', 'no'), to: 'no' },
+    ] },
+    { k: 'in', who: 'xiaok', mood: 'smile', text: '格局！哥你就是我们的第一个投资人，等我们 A 轮，你就是创始股东！', end: true },
+    { k: 'no', who: 'xiaok', mood: 'sad', text: '……这个问题，我们下一版 PPT 会回答。', end: true },
+  ]),
+  episode('keji_ai_2', 'keji', s => s.flags.ai === 1 && since(s, 'aiDay', 4), [
+    { who: 'narr', text: '还是那家咖啡店。小K 没戴 VR 眼镜，看上去三天没睡。', to: s => (luck(s, 7) < 0.35 ? 'win' : 'lose') },
+    { k: 'win', who: 'xiaok', mood: 'smile', text: '哥！成了！一家水产集团看中了，直接把我们收了！你那份，按五倍给你结！',
+      effect: s => { const n = (s.flags.aiBet || 0) * 5; s.cash += n; mark(s, 'ai', 'won'); return `现金 +${yuan(n)}`; }, end: true },
+    { k: 'lose', who: 'xiaok', mood: 'sad', text: '哥……龙虾全跑了。摄像头拍到了，AI 也算出来了，就是没人去关那个水阀。钱是还不上了，这件文化衫你拿着，限量的。',
+      effect: s => { mark(s, 'ai', 'lost'); return favor(s, 1); }, end: true },
+  ]),
+
+  // ===== 华强北·老周的一米柜台（地标：电子大厦）=====
+  episode('hqb_zhou_1', 'huaqiangbei', s => s.day >= 2 && !s.flags.zhou, [
+    { who: 'narr', text: '电子大厦三楼最里头，一个一米宽的柜台，墙上贴满了褪色的手机海报。柜台后面的老头在泡功夫茶。' },
+    { who: 'zhou', text: '后生，看什么看，这些都是古董，不卖。零八年，我这一个柜台，一天出两千台机。山寨机，懂不懂？', choices: [
+      { label: '坐下来，请他讲讲当年（买包茶叶 ¥50）', ok: s => s.cash >= 50, why: '现金不足 ¥50', effect: s => { mark(s, 'zhou', 1); return pay(s, 50); }, to: 'sit' },
+      { label: '“现在谁还用山寨机啊。”', effect: s => mark(s, 'zhou', 'no'), to: 'no' },
+    ] },
+    { k: 'sit', who: 'zhou', mood: 'smile', text: '那时候，带电视的、带验钞灯的、八个喇叭的，我们什么都敢做。卖到非洲，卖到印度。后来大牌子起来了，我们就散了。' },
+    { who: 'zhou', mood: 'smile', text: '你人不错，肯听老头子啰嗦。下次来，我教你一招。', end: true },
+    { k: 'no', who: 'zhou', mood: 'angry', text: '哼，没有我们，哪有今天的你们。', end: true },
+  ], 'landmark'),
+  episode('hqb_zhou_2', 'huaqiangbei', s => s.flags.zhou === 1 && since(s, 'zhouDay', 2), [
+    { who: 'zhou', text: '来了？坐。我教你砍价。记住三句：第一，别说你要，说你“看看”。第二，价钱别先开口。第三——' },
+    { who: 'zhou', mood: 'smile', text: '转身要真走。走到第三个柜台，他一定叫你。叫你了，你就赢了。',
+      effect: s => { mark(s, 'zhou', 2); s.flags.haggleSkill = true; return '学会了老周的砍价功夫：砍价成功率永久提升'; } },
+    { who: 'me', text: '这……就这么简单？' },
+    { who: 'zhou', mood: 'smile', text: '简单？我用了二十年才敢真走。', end: true },
+  ], 'landmark'),
+  episode('hqb_zhou_3', 'huaqiangbei', s => s.flags.zhou === 2 && since(s, 'zhouDay', 3) && s.day >= 13, [
+    { who: 'narr', text: '老周的柜台空了一半，墙上的海报被一张张揭下来，叠得整整齐齐。' },
+    { who: 'zhou', mood: 'sad', text: '租约到期了，不续了。儿子在东莞买了房，叫我过去带孙子。' },
+    { who: 'zhou', mood: 'smile', text: '这台机你拿着，最后一批货，双卡双待，带手电筒，能用十年。我们那代人做的东西，结实。',
+      effect: s => { mark(s, 'zhou', 'done'); const n = give(s, 'phone', 1); return n ? '翻新手机 +1' : '背包满了，他说替你寄到老乡会。'; }, end: true },
+  ], 'landmark'),
+
+  // ===== 福田·莲花山相亲角 =====
+  episode('ft_date_1', 'futian', s => s.day >= 4 && !s.flags.date, [
+    { who: 'narr', text: '路过莲花山脚，一排排的牌子：男，八五年，有房有车，年薪四十万。一个烫着卷发的阿姨一把拉住了你。' },
+    { who: 'hongyi', mood: 'smile', text: '靓仔！单身吧？我一看就知道。做什么的？一个月多少？深圳有房吗？', choices: [
+      { label: '“做贸易的，自己当老板。”（吹一吹）', effect: s => { mark(s, 'date', 1); s.flags.dateBrag = true; return ''; }, to: 'brag' },
+      { label: '“在街上倒货的，还欠着债。”（老实说）', effect: s => mark(s, 'date', 1), to: 'honest' },
+      { label: '拔腿就跑', effect: s => mark(s, 'date', 'ran'), to: 'run' },
+    ] },
+    { k: 'brag', who: 'hongyi', mood: 'smile', text: '老板好啊！我手上有个林小姐，福田上班的，眼光高。下次你来，我约她跟你喝个茶！', end: true },
+    { k: 'honest', who: 'hongyi', text: '……老实人啊。老实人好，现在老实人少。我手上有个林小姐，就喜欢实在的。下次我给你们约！', end: true },
+    { k: 'run', who: 'hongyi', mood: 'angry', text: '跑什么跑！我又不收钱！', end: true },
+  ]),
+  episode('ft_date_2', 'futian', s => s.flags.date === 1 && since(s, 'dateDay', 2), [
+    { who: 'narr', text: '茶餐厅的卡座里，林小姐看了一眼你的背包，又看了一眼手机上红姨发的介绍。' },
+    { who: 'lin', text: s => (s.flags.dateBrag ? '红姨说你是做贸易的大老板？那这个背包……是你的风格？' : '红姨说你很实在。我也直说吧，我在深圳八年，见过太多吹牛的人了。') },
+    { who: 'lin', text: '你觉得，在深圳，最重要的是什么？', choices: [
+      { label: '“是有个人一起熬。”', effect: s => { mark(s, 'date', 'good'); return favor(s, 1); }, to: 'good' },
+      { label: '“是钱。”', effect: s => mark(s, 'date', 'meh'), to: 'money' },
+      { label: '抢着把单买了（¥200）', ok: s => s.cash >= 200, why: '现金不足 ¥200', effect: s => { mark(s, 'date', 'meh'); return pay(s, 200); }, to: 'bill' },
+    ] },
+    { k: 'good', who: 'lin', mood: 'smile', text: '……这个答案还行。下礼拜我加班少，可以再出来喝个茶。AA。', end: true },
+    { k: 'money', who: 'lin', mood: 'smile', text: '诚实。我也这么觉得。那我们还是各自努力搞钱吧，加个微信，有生意介绍给你。', end: true },
+    { k: 'bill', who: 'lin', text: '谢谢。不过下次别这样，我不喜欢欠人情。', end: true },
+  ]),
+
+  // ===== 福田·金融塔里的 Kevin（地标：金融塔）=====
+  episode('ft_kevin_1', 'futian', s => s.day >= 5 && s.cash >= 5000 && !s.flags.kevin, [
+    { who: 'narr', text: '金融塔大堂里，一个西装笔挺的年轻人递过来一张烫金名片：财富管理中心，高级客户经理。' },
+    { who: 'kevin', mood: 'smile', text: '先生您好，我是 Kevin。我们有一款内部产品，年化百分之三十，保本保息，五千起投，只对少数客户开放。', choices: [
+      { label: '投五千试试', ok: s => s.cash >= 5000, why: '现金不足 ¥5,000', effect: s => { mark(s, 'kevin', 'lost'); return pay(s, 5000); }, to: 'in' },
+      { label: '“你们的金融牌照给我看看。”', effect: s => { mark(s, 'kevin', 'caught'); return favor(s, 1); }, to: 'license' },
+      { label: '“不了，谢谢。”', effect: s => mark(s, 'kevin', 'no'), to: 'no' },
+    ] },
+    { k: 'in', who: 'kevin', mood: 'smile', text: '先生好眼光！合同我回头寄给您，每个月十号到账。', end: true },
+    { k: 'license', who: 'kevin', mood: 'sad', text: '牌照……在、在总部，我回头拍给您……' },
+    { who: 'narr', text: '他把名片揣回兜里，快步走出了大堂。保安在后面喊了一声，他跑得更快了。', end: true },
+    { k: 'no', who: 'kevin', text: '好的先生，有需要随时找我。', end: true },
+  ], 'landmark'),
+  episode('ft_kevin_2', 'futian', s => s.flags.kevin === 'lost' && since(s, 'kevinDay', 3), [
+    { who: 'narr', text: '金融塔大堂立了一块新的提示牌：“警惕冒充金融机构的非法集资”，上面贴着一张照片——就是 Kevin。' },
+    { who: 'officer', text: '你也被他骗了？登记一下。追回来的钱，按比例退。别抱太大希望，能回来三成就不错了。',
+      effect: s => { const n = 1500; s.cash += n; mark(s, 'kevin', 'back'); return `追回 ${yuan(n)}`; } },
+    { who: 'narr', text: '年化百分之三十，最后变成了亏七成。你把那张烫金名片揉成一团，扔进了垃圾桶。', end: true },
+  ], 'landmark'),
+
+  // ===== 东门·牌坊下的阿木（地标：老街牌坊）=====
+  episode('dm_amu_1', 'dongmen', s => s.day >= 2 && !s.flags.amu, [
+    { who: 'narr', text: '牌坊底下，一个穿拖鞋的年轻人抱着一把掉了漆的吉他，唱着一首十几年前的老歌。面前的琴盒里只有几个硬币。' },
+    { who: 'amu', text: '谢谢，谢谢。下一首，想听什么都可以点。', choices: [
+      { label: '往琴盒里放二十块，点一首', ok: s => s.cash >= 20, why: '现金不足 ¥20', effect: s => { mark(s, 'amu', 1); return pay(s, 20) + ' · ' + hp(s, 5); }, to: 'tip' },
+      { label: '站着听完一首就走', effect: s => mark(s, 'amu', 'no'), to: 'listen' },
+    ] },
+    { k: 'tip', who: 'amu', mood: 'smile', text: '老板大气！我叫阿木，从贵州来的。等我攒够钱，要录一张自己的专辑。', end: true },
+    { k: 'listen', who: 'narr', text: '一曲唱完，你发现自己的脚步轻了一点。', effect: s => hp(s, 3), end: true },
+  ], 'landmark'),
+  episode('dm_amu_2', 'dongmen', s => s.flags.amu === 1 && since(s, 'amuDay', 2), [
+    { who: 'officer', text: '这里不能卖唱，影响通行，收拾一下走吧。' },
+    { who: 'amu', mood: 'sad', text: '我就唱到八点……我不挡路的，我靠着柱子唱……' },
+    { who: 'narr', text: '围观的人越来越多，有人小声说：唱得挺好的啊。', choices: [
+      { label: '帮他说情：“他唱完这首就走，我帮他收拾。”', effect: s => { mark(s, 'amu', 2); return favor(s, 1); }, to: 'help' },
+      { label: '别掺和', effect: s => mark(s, 'amu', 'gone'), to: 'leave' },
+    ] },
+    { k: 'help', who: 'officer', text: '……行，就这一首。下次去文化广场那边，那边有街头表演登记。' },
+    { who: 'amu', mood: 'smile', text: '兄弟，这首送你。', end: true },
+    { k: 'leave', who: 'narr', text: '第二天，牌坊底下空荡荡的，只剩一个歪倒的谱架。', end: true },
+  ], 'landmark'),
+  episode('dm_amu_3', 'dongmen', s => s.flags.amu === 2 && since(s, 'amuDay', 3) && s.day >= 14, [
+    { who: 'narr', text: '牌坊底下架起了补光灯和摄像机，阿木换了一身新衣服。旁边那个人你认识——酱板鸭短剧的导演。' },
+    { who: 'director', mood: 'smile', text: '这小伙子的嗓子，配我新剧的主题曲正好！哎，你不是那个……来来来，正缺一个路人甲，演一个街头老板，一天八百！',
+      effect: s => { s.cash += 800; mark(s, 'amu', 'star'); return '现金 +¥800'; } },
+    { who: 'amu', mood: 'smile', text: '哥，主题曲的第一句，是看着你写的。', end: true },
+  ], 'landmark'),
+
+  // ===== 蛇口·邮轮边的 Mike（地标：海上邮轮）=====
+  episode('sk_mike_1', 'shekou', s => s.day >= 3 && !s.flags.mike, [
+    { who: 'narr', text: '邮轮旁的栈道上，一个高个子外国人举着手机，对着翻译软件跟一个阿婆比划了半天。' },
+    { who: 'mike', mood: 'smile', text: '你好！我叫 Mike，我……在蛇口，教英语。我妈妈，下个月，生日。我想买，中国的，油画。真的，油画。你知道吗？' },
+    { who: 'mike', text: s => (has(s, 'painting') ? '你的包里……是油画吗？我可以买！' : '大芬村？很远吗？我不会坐地铁……'), choices: [
+      { label: '把手上的油画卖给他（按市价一倍半）', ok: s => has(s, 'painting') > 0, why: '手上没有油画',
+        effect: s => { const n = sellAt(s, 'painting', 2, Math.round(priceOf(s, 'painting') * 1.5)); mark(s, 'mike', 'sold'); return `卖出油画 ${n} 幅，现金 +${yuan(n * Math.round(priceOf(s, 'painting') * 1.5))}`; }, to: 'sold' },
+      { label: '“下次我帮你带一幅过来。”', effect: s => mark(s, 'mike', 1), to: 'later' },
+    ] },
+    { k: 'sold', who: 'mike', mood: 'smile', text: '太好了！我妈妈会哭的！谢谢你，我的朋友！', end: true },
+    { k: 'later', who: 'mike', mood: 'smile', text: '真的吗？太好了！我每天下午都在这里。', end: true },
+  ], 'landmark'),
+  episode('sk_mike_2', 'shekou', s => s.flags.mike === 1 && since(s, 'mikeDay', 2), [
+    { who: 'mike', mood: 'smile', text: s => (has(s, 'painting') ? '我的朋友！你带来了！我还叫了两个同事，他们也想要！' : '我的朋友！油画呢？我同事们都在等……'), choices: [
+      { label: '把油画都卖给他们（按市价一倍八，最多 4 幅）', ok: s => has(s, 'painting') > 0, why: '手上没有油画',
+        effect: s => { const u = Math.round(priceOf(s, 'painting') * 1.8), n = sellAt(s, 'painting', 4, u); mark(s, 'mike', 'sold'); return `卖出油画 ${n} 幅，现金 +${yuan(n * u)} · ` + favor(s, 1); }, to: 'sold' },
+      { label: '“抱歉，忘了……”', effect: s => { mark(s, 'mike', 'forgot'); return favor(s, -1); }, to: 'sad' },
+    ] },
+    { k: 'sold', who: 'mike', mood: 'smile', text: '这是我在中国做的最好的一笔交易！下次我请你喝精酿！', end: true },
+    { k: 'sad', who: 'mike', mood: 'sad', text: 'Oh……没关系。中国人说，下次一定？', end: true },
+  ], 'landmark'),
+
+  // ===== 宝安·西乡工厂（地标：西乡工厂）=====
+  episode('ba_fac_1', 'baoan', s => s.day >= 4 && !s.flags.fac, [
+    { who: 'narr', text: '工厂门口堆满了纸箱。一个挺着肚子的男人叼着烟，冲你招手。' },
+    { who: 'huang', mood: 'smile', text: s => `兄弟，倒货的吧？我这批 LED 灯带，${yuan(Math.max(5, Math.round(priceOf(s, 'led') * 0.5)))} 一条，市价对半！要多少有多少，今天现钱提货。` },
+    { who: 'fang', mood: 'sad', text: '（一个穿工衣的姑娘从你身边走过，压低声音）他三个月没发工资了，这批货是抵债的，过两天就要被查封……', choices: [
+      { label: '照收不误，便宜就是硬道理（60 条）', effect: s => { const n = buyAt(s, 'led', 60, Math.max(5, Math.round(priceOf(s, 'led') * 0.5))); mark(s, 'fac', 'bought'); return `LED灯带 +${n}`; }, to: 'buy' },
+      { label: '帮小芳打劳动监察的电话', effect: s => { mark(s, 'fac', 'report'); return favor(s, 2); }, to: 'report' },
+      { label: '不蹚这趟浑水', effect: s => mark(s, 'fac', 'no'), to: 'no' },
+    ] },
+    { k: 'buy', who: 'huang', mood: 'smile', text: '爽快！以后常来！', end: true },
+    { k: 'report', who: 'narr', text: '你走到街角拨了 12345。小芳远远地看着你，眼圈红了。', end: true },
+    { k: 'no', who: 'narr', text: '你摇摇头走开了。身后，黄厂长还在招呼下一个路人。', end: true },
+  ], 'landmark'),
+  episode('ba_fac_2', 'baoan', s => (s.flags.fac === 'bought' || s.flags.fac === 'report') && since(s, 'facDay', 3), [
+    { who: 'narr', text: '西乡工厂的大门贴上了封条。门口围着一圈工人，劳动监察的车停在路边。', to: s => (s.flags.fac === 'report' ? 'r' : 'b') },
+    { k: 'r', who: 'fang', mood: 'smile', text: '工资发下来了！三个月的！这是我家沙井的生蚝，我爸今早刚撬的，你一定要收下。',
+      effect: s => { mark(s, 'fac', 'done'); const n = give(s, 'oyster', 5); return (n ? `沙井生蚝 +${n} · ` : '') + favor(s, 1); }, end: true },
+    { k: 'b', who: 'fang', mood: 'sad', text: '……你就是那天收灯带的人吧。那批货是我们三个月的工资。算了，你也是做生意的。',
+      effect: s => { mark(s, 'fac', 'guilt'); return favor(s, -1); }, end: true },
+  ]),
+
+  // ===== 龙华·三和的海哥 =====
+  episode('lh_haige_1', 'longhua', s => s.day >= 3 && s.cash < 1500 && !s.flags.haige, [
+    { who: 'narr', text: '人力市场门口，一群人蹲在马路牙子上抽烟。一个瘦高个看了一眼你干瘪的钱包。' },
+    { who: 'haige', text: '兄弟，手头紧吧？我叫海哥，在这住了三年。明天有个日结，搬货，一天三百，管一顿饭。干不干？', choices: [
+      { label: '干！先把今天过了', effect: s => { s.cash += 300; mark(s, 'haige', 1); return '现金 +¥300 · ' + hp(s, -20); }, to: 'work' },
+      { label: '“我再想想办法。”', effect: s => mark(s, 'haige', 1), to: 'no' },
+    ] },
+    { k: 'work', who: 'haige', mood: 'smile', text: '干一天玩三天，这是三和的规矩。不过你跟我们不一样，你眼里还有光。', end: true },
+    { k: 'no', who: 'haige', text: '行，有骨气。想通了随时来，我就在这儿蹲着。', end: true },
+  ]),
+  episode('lh_haige_2', 'longhua', s => s.flags.haige === 1 && since(s, 'haigeDay', 3), [
+    { who: 'narr', text: '握手楼底下的士多店门口，海哥在打电话，声音很小：“妈，我过年回来……真的回来。”' },
+    { who: 'haige', mood: 'sad', text: '兄弟，跟你说个事。我想回家了。三年没回去了。就是……车票钱还差两百。', choices: [
+      { label: '给他买张车票（¥200）', ok: s => s.cash >= 200, why: '现金不足 ¥200', effect: s => { mark(s, 'haige', 'home'); return pay(s, 200) + ' · ' + favor(s, 2); }, to: 'give' },
+      { label: '“我也不容易……”', effect: s => mark(s, 'haige', 'stay'), to: 'no' },
+    ] },
+    { k: 'give', who: 'haige', mood: 'smile', text: '……我这辈子没求过人。兄弟，你会发财的，我说的。', end: true },
+    { k: 'no', who: 'haige', text: '懂，都不容易。那我再干几天日结。', end: true },
+  ], 'landmark'),
+
+  // ===== 大芬·画师阿梵（地标：画家村）=====
+  episode('df_fan_1', 'dafen', s => s.day >= 2 && !s.flags.fan, [
+    { who: 'narr', text: '画家村的巷子里，一个满手颜料的年轻人正在画第一百零一幅《向日葵》，画得一模一样。' },
+    { who: 'fan', text: '要画像吗？两百一张，半小时。我临摹梵高十年了，闭着眼都能画，就是没人买我自己的画。', choices: [
+      { label: '画一张（¥200）', ok: s => s.cash >= 200, why: '现金不足 ¥200', effect: s => { mark(s, 'fan', 1); return pay(s, 200) + ' · ' + favor(s, 1); }, to: 'draw' },
+      { label: '“你自己的画，给我看看？”', effect: s => mark(s, 'fan', 1), to: 'own' },
+    ] },
+    { k: 'draw', who: 'fan', mood: 'smile', text: '你这张脸好画，圆。……送你个背景，深圳的夜景。', end: true },
+    { k: 'own', who: 'fan', mood: 'smile', text: '真的要看？……这是城中村的屋顶，这是凌晨四点的华强北。没人要，但我喜欢。', end: true },
+  ], 'landmark'),
+  episode('df_fan_2', 'dafen', s => s.flags.fan === 1 && since(s, 'fanDay', 2), [
+    { who: 'narr', text: '一个光头男人拦住了你。你认出来了——罗湖那个。他今天换了身唐装，手里捧着一幅画。' },
+    { who: 'guang', mood: 'smile', text: '老板，识货的话看看这个：名家真迹，有证书。急用钱，五千，亏本出。' },
+    { who: 'fan', mood: 'angry', text: '（凑到你耳边）那是我上个月画的，一百五卖给他的……', choices: [
+      { label: '当场拆穿他', effect: s => { mark(s, 'fan', 2); return favor(s, 1); }, to: 'expose' },
+      { label: '装作不知道，走开', effect: s => mark(s, 'fan', 2), to: 'walk' },
+    ] },
+    { k: 'expose', who: 'guang', mood: 'angry', text: '……又是你！你是专门来坏我生意的是吧！' },
+    { who: 'narr', text: '光头男人卷起画就跑了。阿梵笑得直不起腰。', end: true },
+    { k: 'walk', who: 'narr', text: '你转身离开，听见光头男人又拦住了一对游客。', end: true },
+  ], 'landmark'),
+  episode('df_fan_3', 'dafen', s => s.flags.fan === 2 && since(s, 'fanDay', 3) && s.day >= 14, [
+    { who: 'narr', text: '画家村的小美术馆门口挂着一条横幅：阿梵个展·《凌晨四点的深圳》。' },
+    { who: 'fan', mood: 'smile', text: '有个策展人看到了我的画！第一次，我自己的名字挂在墙上。这幅你拿去，就是那天给你看的华强北。',
+      effect: s => { mark(s, 'fan', 'show'); const n = give(s, 'painting', 1); return n ? '大芬油画 +1' : '背包满了，他说先替你收着。'; }, end: true },
+  ], 'landmark'),
+
+  // ===== 盐田·海员老张（地标：集装箱码头）=====
+  episode('yt_zhang_1', 'yantian', s => s.day >= 3 && !s.flags.zhang, [
+    { who: 'narr', text: '码头边，一个皮肤晒得黝黑的老海员坐在缆桩上，脚边放着几个贴满外文标签的纸箱。' },
+    { who: 'zhang', text: s => `跑了十八个月船，刚靠岸。路上捎了几张二手显卡，船上的小伙子们挖矿淘汰的，${yuan(Math.round(priceOf(s, 'gpu') * 0.6))} 一张，要不要？`, choices: [
+      { label: '要三张', ok: s => s.cash >= priceOf(s, 'gpu') * 0.6 && free(s) > 0, why: '现金或背包不够',
+        effect: s => { const n = buyAt(s, 'gpu', 3, Math.round(priceOf(s, 'gpu') * 0.6)); mark(s, 'zhang', 1); return `二手显卡 +${n}`; }, to: 'buy' },
+      { label: '陪他聊聊海上的事', effect: s => mark(s, 'zhang', 1), to: 'talk' },
+    ] },
+    { k: 'buy', who: 'zhang', mood: 'smile', text: '识货！挖过矿的卡，扛造。', end: true },
+    { k: 'talk', who: 'zhang', mood: 'smile', text: '海上啊，就是蓝，蓝得你发慌。最想的是一碗热肠粉。', end: true },
+  ], 'landmark'),
+  episode('yt_zhang_2', 'yantian', s => s.flags.zhang === 1 && since(s, 'zhangDay', 3), [
+    { who: 'narr', text: '天色突然黑了下来，风卷着雨点打在集装箱上。广播在喊：台风提前登陆，所有人撤离码头。' },
+    { who: 'zhang', mood: 'angry', text: '我那几个箱子还没绑！兄弟，搭把手！', choices: [
+      { label: '冒雨帮他绑箱子', effect: s => { mark(s, 'zhang', 'storm'); const n = give(s, 'gpu', 1); return hp(s, -10) + ' · ' + favor(s, 2) + (n ? ' · 二手显卡 +1（他硬塞给你的）' : ''); }, to: 'help' },
+      { label: '先找地方躲雨', effect: s => mark(s, 'zhang', 'hid'), to: 'hide' },
+    ] },
+    { k: 'help', who: 'zhang', mood: 'smile', text: '好兄弟！这张卡拿着，不收钱。海上的规矩：一起扛过风的，就是自己人。', end: true },
+    { k: 'hide', who: 'narr', text: '你在岗亭里躲了一夜。第二天，老张的两个箱子被吹进了海里。', end: true },
+  ]),
+];
+SCENES.push(...EPISODES);
 
 // 随机事件：换区时按权重 w 抽一个，can(s) 为假的不参与。可以重复发生。
 export const EVENT_SCENES = [
@@ -437,10 +855,29 @@ export function walkerScene(s, i) {
 // 找出现在该触发的场景：先是主线（每个一局只触发一次），再是这次换区抽到的随机事件
 export function nextScene(s) {
   if (s.over) return null;
-  return SCENES.find(sc => !s.seen[sc.id] && sc.when(s))
+  return SCENES.find(sc => !sc.at && !s.seen[sc.id] && sc.when(s))
     || (s.pendingEvent && EVENT_SCENES.find(e => e.id === s.pendingEvent))
     || (s.offer ? OFFER_SCENE : null);
 }
+
+// 走到本区地标跟前互动：有该发生的插曲就播插曲，没有就返回一句看风景的旁白
+export function landmarkScene(s) {
+  if (s.over) return null;
+  return SCENES.find(sc => sc.at === 'landmark' && !s.seen[sc.id] && sc.when(s)) || null;
+}
+const LANDMARK_LINES = {
+  huaqiangbei: ['电子大厦里，一米宽的柜台挤了上百家，喊价声比空调声还响。', '门口的大屏滚动着“全网最低价”，底下蹲着一排等活的维修师傅。'],
+  futian: ['你仰头看金融塔，脖子都酸了，楼顶还藏在云里。', '大堂的保安上下打量了你一眼，你默默把背包往身后挪了挪。'],
+  luohu: ['联检楼里人潮汹涌，拖着箱子的人往一个方向走，空着手的人往另一个方向走。', '口岸的广播一遍遍提醒：请勿替他人携带物品。'],
+  dongmen: ['牌坊底下，有人在拍照，有人在卖糖画，还有人在吵架。', '老街的牌坊比你想象的旧，柱子上的红漆剥了一层又一层。'],
+  keji: ['双子塔之间的天桥上，有人边走边开视频会议。', '楼下的咖啡店门口排着长队，每个人胸前都挂着工牌。'],
+  shekou: ['邮轮上的灯一串串亮起来，海风里有咖啡和炸鱼的味道。', '码头边，几个外国人在用翻译软件跟出租车师傅讲价。'],
+  baoan: ['工厂门口的电子屏写着：急招普工，包吃住，日结。', '下班铃一响，穿着工衣的人潮从厂门涌了出来。'],
+  longhua: ['握手楼之间的缝隙只容一个人侧身过去，头顶晾着一整条街的衣服。', '楼下的出租告示贴了一层又一层：单间 800，押一付一。'],
+  dafen: ['画家村门口，几十幅一模一样的《向日葵》排成一排晒太阳。', '一个画师头也不抬：“定制肖像，两百一张，半小时取。”'],
+  yantian: ['龙门吊缓缓地把一个集装箱吊上了船，像在下一盘很大的棋。', '码头的风很大，吹得集装箱上的封条哗哗作响。'],
+};
+export const landmarkLine = s => { const a = LANDMARK_LINES[s.loc] || ['这里人来人往。']; return a[s.day % a.length]; };
 
 // 逐步播放一个场景。界面层调用 current() 显示，next() / choose(i) 推进。
 export function play(s, scene) {
@@ -548,6 +985,24 @@ export function epilogue(s) {
   const net = s.cash + s.bank - s.debt;
   if (s.favor >= 4) out.push('规矩立住了，路是越走越宽。这座城市里，肯替你说话的人不少。');
   else if (s.favor < 0 && net > 0) out.push('钱是挣到了，就是夜里想起来，有点烧心。');
+  if (s.flags.wen === 'together') out.push('东门新开的港货店，开张那天的第一位客人是你。后来，店门口的鞭炮常常是为你放的。');
+  else if (s.flags.wen === 'friend') out.push('小雯的港货店生意不错，你每次去，她都按进价给你。');
+  else if (s.flags.wen === 'gone') out.push('后来你再也没在口岸见过小雯。');
+  if (s.flags.chen === 'done') out.push('陈总的公司上市那天，你在新闻里看到了他，他还穿着那件灰卫衣。');
+  if (s.flags.ai === 'won') out.push('小K 的 AI 养龙虾被收购了。你成了朋友圈里唯一一个真赚到钱的天使投资人。');
+  else if (s.flags.ai === 'lost') out.push('那件限量文化衫，你后来一直当睡衣穿。');
+  if (s.flags.zhou === 'done') out.push('老周送的那台山寨机，你用了很多年，电池一次也没换过。');
+  if (s.flags.date === 'good') out.push('林小姐后来真的约你喝了第二次茶。AA。');
+  if (s.flags.kevin === 'caught') out.push('那个叫 Kevin 的理财经理后来被抓了，你是少数没上当的人之一。');
+  if (s.flags.amu === 'star') out.push('阿木的歌火了。短剧片头里那个一闪而过的路人甲，是你。');
+  if (s.flags.mike === 'sold') out.push('Mike 的妈妈把那幅油画挂在了伦敦的客厅里。');
+  if (s.flags.fac === 'done') out.push('小芳后来去读了夜校，每年都给你寄一箱沙井生蚝。');
+  else if (s.flags.fac === 'guilt') out.push('那批便宜的灯带，你卖得很顺，就是一直有点烧心。');
+  if (s.flags.haige === 'home') out.push('海哥回了老家，在镇上开了个小卖部。他说，三和他再也不去了。');
+  if (s.flags.fan === 'show') out.push('阿梵的《凌晨四点的深圳》后来卖了很高的价钱。你手上那幅，他说永远不会让你卖。');
+  if (s.flags.zhang === 'storm') out.push('老张再出海前，请你吃了一碗热肠粉。');
+  if (s.flags.lan === 'done') out.push('阿兰的女儿在罗湖上了小学，作文写的是《我的妈妈在深圳》。');
+  else if (s.flags.lan === 'trap') out.push('那次在罗湖被讹的钱，你一直没好意思跟人提。');
   if (s.flags.jie === 'lent') out.push('阿杰后来当上了线长，逢人就说起借他五百块的那个老乡。');
   else if (s.flags.jie === 'fed') out.push('阿杰每次路过那家猪脚饭，都会想起你。');
   return out;

@@ -1,0 +1,36 @@
+{
+  "style": "soft 3D clay/vinyl toy render like the attached panda reference, chibi proportions with a big head, simplified rounded features, smooth shading, warm studio light, plain uniform light warm-beige background (#f6f1ea), head-and-shoulders bust, character centered, straight-on eye-level, square 1:1, no props, no text, no logos, no watermark, no border",
+  "moods": {
+    "plain": "calm neutral expression",
+    "smile": "big warm happy smile, eyes slightly squinting with joy",
+    "angry": "angry expression, furrowed brows, frowning mouth, slightly red face",
+    "sad": "sad expression, drooping eyebrows, downturned mouth, eyes a little teary"
+  },
+  "cast": {
+    "bing": "炳叔, a 60-year-old Chinese man from Chaoshan, head of a hometown association in Shenzhen. Short grey hair, thick black eyebrows, slightly chubby friendly face, small gold-rimmed glasses, dark polo shirt with a thin gold chain, subtle shrewd look",
+    "jie": "阿杰, a 22-year-old young Chinese man who just arrived in Shenzhen from the countryside. Black hair with a messy fringe, round youthful face, rosy cheeks, naive eager eyes, mustard-yellow t-shirt with brown backpack straps on his shoulders",
+    "biao": "阿彪, a 35-year-old Chinese debt collector. Buzz-cut black hair, square jaw, thick eyebrows, a small scar through one eyebrow, tanned skin, black t-shirt, chunky gold chain necklace, tough look but not evil",
+    "boss": "档口老板, a 45-year-old Chinese market stall owner in Huaqiangbei. Short black hair, neat little mustache, tanned round face, orange-red polo shirt with small yellow dot pattern, shrewd businessman look",
+    "landlord": "房东阿姨, a 55-year-old Chinese landlady of an urban-village apartment building. Curly permed dark-brown hair, red lipstick, jade green earrings, purple top with pink dots, slightly bossy look",
+    "auntie": "肠粉摊阿姨, a 50-year-old Cantonese street-food auntie who sells rice noodle rolls. Black hair in a bun, warm motherly face, rosy cheeks, light-blue t-shirt with a white apron",
+    "officer": "市场协管, a 40-year-old Chinese market management officer. Short neat black hair, serious face, light-blue uniform shirt with a plain red armband, peaked cap",
+    "director": "短剧导演, a 30-year-old Chinese short-video drama director. Black hair with fringe, black-framed glasses, slight stubble, black t-shirt, a headset around his neck, energetic look",
+    "passer": "a 28-year-old ordinary Shenzhen passer-by man, short black hair, plain light-grey t-shirt, everyday face",
+    "wen": "小雯, a 24-year-old Chinese girl from Chaoshan who carries goods across the Hong Kong border every day. Shoulder-length black hair in a low ponytail with loose strands, bright lively eyes, light freckles, small silver stud earrings, white t-shirt under an oversized light-denim jacket, energetic and kind",
+    "lan": "阿兰, a 32-year-old Chinese woman from Hunan who works as a foot-massage therapist. Black hair tied back in a neat low bun, gentle tired eyes, warm smile lines, wearing a simple dark-red mandarin-collar work uniform with a small plain name tag (no text), modest and kind",
+    "guang": "光头佬, a 45-year-old shady Chinese street hustler. Shaved bald head, thick neck, small narrow eyes, fake friendly grin, a very thick gold chain, black short-sleeve shirt with a loud gold pattern, cartoonish not scary",
+    "chen": "陈总, a 45-year-old Chinese hardware-startup founder in Shenzhen's tech park. Short practical haircut with a few grey strands, square face, energetic sharp eyes, plain grey hoodie, unpretentious tech-boss look",
+    "xiaok": "小K, a 25-year-old overconfident Chinese AI startup founder. Trendy two-block haircut dyed ash brown, VR headset pushed up on his forehead, black turtleneck, wired earbuds, hyped-up salesman energy",
+    "zhou": "老周, a 65-year-old veteran electronics-market stall owner in Huaqiangbei. Thinning grey hair combed back, deep smile lines, reading glasses hanging on a cord, faded short-sleeve white shirt with a pen in the pocket, wise old merchant",
+    "hongyi": "红姨, a 58-year-old enthusiastic Shenzhen matchmaker auntie at the park blind-date corner. Tight curly permed hair dyed reddish brown, bright red lipstick, big pearl earrings, bright red floral blouse, nosy and warm",
+    "lin": "林小姐, a 29-year-old Chinese office professional in Futian CBD. Sleek straight shoulder-length black hair, thin gold earrings, light makeup, cream-colored blazer over a white top, composed and slightly guarded expression",
+    "kevin": "Kevin, a 28-year-old suspicious Chinese 'wealth manager'. Slicked-back glossy hair, too-perfect smile, navy suit that is slightly too shiny, bright tie, fake-sincere eyes, cartoonish not scary",
+    "amu": "阿木, a 23-year-old Chinese street singer from Guizhou. Messy shoulder-length black hair, slightly tanned skin, a guitar strap over his shoulder, faded green t-shirt, dreamy gentle eyes",
+    "mike": "Mike, a 30-year-old British English teacher living in Shekou, Shenzhen. Messy light-brown hair, short beard, freckles, blue eyes, round glasses, casual blue linen shirt, friendly and a little awkward",
+    "huang": "黄厂长, a 52-year-old Chinese small factory owner. Balding with combed-over hair, chubby face, small mustache, white short-sleeve shirt stretched over a belly, a cigarette tucked behind his ear (unlit), shifty smile",
+    "fang": "小芳, a 21-year-old Chinese factory assembly-line worker. Black hair under a light-blue factory cap, simple face without makeup, light-blue factory uniform with a collar, earnest determined eyes",
+    "haige": "海哥, a 35-year-old drifter day-laborer from Shenzhen's Sanhe labor market. Thin face, messy uncut hair, stubble, tired but kind eyes, worn-out white tank top under an unbuttoned plaid shirt",
+    "fan": "阿梵, a 27-year-old Chinese oil painter in Dafen village. Messy wavy hair tied in a small bun, colorful paint smudges on his cheek, paint-stained denim apron over a white t-shirt, passionate eyes",
+    "zhang": "老张, a 55-year-old Chinese merchant sailor. Deeply sun-tanned weathered face, short grey crew cut, crow's feet, navy-blue knit sailor beanie, dark-blue work jacket, tough but kind"
+  }
+}

@@ -188,7 +188,8 @@ export function deliver(s, i) {
 
 // 砍价：每个档口每天一次。成功则这个档口今天的价格全线下调，失败则上调。返回 'win' | 'lose' | null
 export const canHaggle = s => !newsOf(s).noHaggle;
-export const haggleChance = s => Math.max(0.15, Math.min(0.9, CONFIG.haggleBase + s.favor * CONFIG.haggleFavor + (newsOf(s).haggle || 0)));
+// flags.haggleSkill：华强北老周教的砍价功夫，永久加一成二
+export const haggleChance = s => Math.max(0.15, Math.min(0.9, CONFIG.haggleBase + s.favor * CONFIG.haggleFavor + (newsOf(s).haggle || 0) + (s.flags && s.flags.haggleSkill ? 0.12 : 0)));
 export function haggle(s, stallId, goodIds) {
   if (s.over || !canHaggle(s) || s.haggled[stallId] || !goodIds.some(id => s.market[id])) return null;
   const win = rnd(s) < haggleChance(s);

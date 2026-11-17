@@ -6,3 +6,6 @@ tools
 .env.local
 assets/buildings/*.png
 assets/buildings/prompts.json
+assets/portraits/raw
+assets/portraits/prompts.json
+assets/people/prompts.json

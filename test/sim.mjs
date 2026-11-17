@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import * as L from '../src/logic.js';
 import { GOODS, DISTRICTS, CONFIG, STALLS, NEWS, VEHICLES } from '../src/content.js';
-import { ENDINGS, ending, SCENES, EVENT_SCENES, CAST, WALKERS, walkerKind, walkerScene, shadyScene, nextScene, play, epilogue } from '../src/story.js';
+import { ENDINGS, ending, SCENES, EVENT_SCENES, CAST, WALKERS, walkerKind, walkerScene, shadyScene, nextScene, play, epilogue, landmarkScene, landmarkLine } from '../src/story.js';
 
 const seenScenes = new Set();
 const tally = { shadyYes: 0, shadyNo: 0, caught: 0, slipped: 0, delivered: 0, expired: 0, haggleWin: 0, haggleLose: 0, borrowed: 0 };
@@ -28,6 +28,9 @@ function runStory(s, seed) {
     seenScenes.add(sc.id);
     playScene(s, sc, seed);
   }
+  const lm = landmarkScene(s); // 机器人每到一个区都去地标跟前转一圈
+  assert(typeof landmarkLine(s) === 'string');
+  if (lm) { seenScenes.add(lm.id); playScene(s, lm, seed); }
 }
 function playScene(s, sc, seed) {
   {
@@ -41,7 +44,9 @@ function playScene(s, sc, seed) {
       if (cur.choices) {
         const ok = cur.choices.map((c, i) => (c.ok ? i : -1)).filter(i => i >= 0);
         assert(ok.length, 'at least one choice must be available: ' + sc.id);
-        assert(p.choose(ok[(seed + s.day + steps) % ok.length]) !== null);
+        // 混入场景名，免得几段连着的插曲每次都落到同一个选项上（选项序号和天数奇偶碰巧绑在一起）
+        const salt = [...sc.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+        assert(p.choose(ok[(seed + s.day + steps + salt) % ok.length]) !== null);
       } else assert(p.next() !== false);
     }
   }
@@ -110,7 +115,9 @@ for (let seed = 1; seed <= 500; seed++) {
     assert(!L.buy(s, 'led', 1e9), 'cannot overbuy');
     const others = DISTRICTS.filter(d => d.id !== s.loc);
     const day0 = s.day, debt0 = s.debt, wasFree = L.freeMoveReady(s);
-    const res = L.travel(s, others[(seed + s.day) % others.length].id);
+    // 三分之一的局常回罗湖（真人要回罗湖还钱，插曲大多在那几段连着讲）
+    const dest = seed % 3 === 0 && s.loc !== 'luohu' ? 'luohu' : others[(seed + s.day) % others.length].id;
+    const res = L.travel(s, dest);
     if (res && res.free) { assert(wasFree && s.day === day0 && s.debt === debt0 && !L.freeMoveReady(s)); veh.freeMoves++; }
     else if (res) assert(s.day === day0 + 1 && L.freeMoveReady(s) === (s.vehicle === 'van'));
     assert(res, 'travel should succeed');
@@ -145,6 +152,21 @@ assert(Object.keys(endSeen).length >= 5 && ENDINGS.every(x => x.id && x.icon), J
 console.log('endings', endSeen, 'vehicles', veh);
 assert(tally.shadyYes > 50 && tally.shadyNo > 50 && tally.caught > 10 && tally.slipped > 10, JSON.stringify(tally));
 assert(tally.delivered > 20 && tally.expired > 20 && tally.haggleWin > 20 && tally.haggleLose > 20 && tally.borrowed > 5, JSON.stringify(tally));
+// 再跑一批随机路线、随机选项的局：插曲要连着到同一个区好几次，固定路线的机器人容易错过
+for (let seed = 0; seed < 600; seed++) {
+  const s = L.newGame(seed + 9000);
+  let r = seed * 99 + 1; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+  while (s.day < CONFIG.days - 1) {
+    const others = DISTRICTS.filter(d => d.id !== s.loc);
+    if (rnd() < 0.5) s.cash += 1500; // 模拟做生意赚到的钱，让需要本钱的插曲也能触发
+    if (!L.travel(s, others[Math.floor(rnd() * others.length)].id)) break;
+    runStory(s, (rnd() * 1000) | 0);
+    L.checkCollapse(s);
+  }
+  assert(epilogue(s).length >= 1);
+}
+const missing = [...SCENES, ...EVENT_SCENES].map(x => x.id).filter(id => !seenScenes.has(id));
+assert.equal(missing.length, 0, 'every scene should be reachable, missing: ' + missing);
 assert.equal(seenScenes.size, SCENES.length + EVENT_SCENES.length + 1, 'every scene should be reachable: ' + [...seenScenes]);
 console.log('ok', scores.length, 'games', tally, kinds);
 console.log({ min: q(0), p25: q(0.25), median: q(0.5), p75: q(0.75), max: q(1) });

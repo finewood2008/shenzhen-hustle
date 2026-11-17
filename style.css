@@ -394,3 +394,4 @@ img.panpan { width: 100%; aspect-ratio: 200 / 220; object-fit: cover; object-pos
 
 /* 设置、天梯、结局这些弹层要盖在封面和结算页上面 */
 #sheet { z-index: 30; }
+#dialog .portrait img.art { object-position: 50% 45%; }

@@ -3,7 +3,7 @@
 import { TITLE, CONFIG, DISTRICTS, GOODS, STALLS, SERVICES, GREETINGS, VEHICLES } from './content.js';
 import * as L from './logic.js';
 import { createScene } from './scene.js';
-import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene, ENDINGS, ending } from './story.js';
+import { CAST, nextScene, play, epilogue, summary, walkerKind, walkerScene, shadyScene, ENDINGS, ending, landmarkScene, landmarkLine } from './story.js';
 import { getAccount, ensureAccount, rename, submitScore, fetchBoard } from './net.js';
 import { portrait } from './portraits.js';
 import { personArt, personName } from './people.js';
@@ -66,6 +66,10 @@ function interact(spot) {
   if (spot.kind === 'metro') {
     if (!L.canTravel(s)) { toast('今天是最后一天，把货卖掉就结算吧。'); return; }
     showMap();
+  } else if (spot.kind === 'landmark') { // 地标：有插曲就播，没有就看看风景
+    const sc = landmarkScene(s);
+    if (sc) startScene(sc, () => { render(); checkStory(); });
+    else toast(`🏛️ ${landmarkLine(s)}`, 3200);
   } else if (spot.kind === 'stall' && s.shady && s.shady.state === 'offer' && spot.goods.includes(s.shady.good) && s.market[s.shady.good]) {
     startScene(shadyScene(s), () => { activeSpot = spot; render(); }); // 老板先问你要不要烧心货
   } else {
@@ -203,7 +207,7 @@ function render() {
     html = `<span>${last ? '最后一天，不能再换区了' : '选一个区前往，每次移动耗时 1 天'}</span><button data-bar="back">返回街区</button>`;
   } else if (!activeSpot) {
     if (nearSpot) {
-      const verb = nearSpot.kind === 'metro' ? '看地图换区' : nearSpot.kind === 'stall' ? '看货' : '办事';
+      const verb = nearSpot.kind === 'metro' ? '看地图换区' : nearSpot.kind === 'stall' ? '看货' : nearSpot.kind === 'landmark' ? (landmarkScene(s) ? '有事发生' : '看看') : '办事';
       html += `<button class="primary" data-bar="interact"><kbd>E</kbd>${nearSpot.icon} ${nearSpot.name} · ${verb}</button>`;
     }
     else if (nearWalker != null && walkerKind(s, nearWalker) !== 'done') {
@@ -888,4 +892,4 @@ function endGame() {
 }
 
 startScreen();
-window.__game = { peek(id, x, yaw) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x, yaw); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id, scene: scene && scene.cur }; }, story: checkStory, go, end: endGame }; // 方便调试
+window.__game = { peek(id, x, yaw) { const d = D[id]; view.enterStreet(d, DISTRICTS.indexOf(d), spotsFor(d), x, yaw); }, map() { view.setMode('map'); }, get state() { return s; }, get ui() { return { mode, near: nearSpot && nearSpot.id, active: activeSpot && activeSpot.id, scene: scene && scene.cur }; }, story: checkStory, go, end: endGame, landmark() { interact({ kind: 'landmark', id: 'landmark' }); } }; // 方便调试

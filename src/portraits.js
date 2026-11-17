@@ -1,4 +1,4 @@
-// 对话头像：用参数拼出来的扁平风 SVG。想换成插画，把 portrait() 改成返回 <img> 即可。
+// 对话头像：优先用 Codex 生成的立绘图片；没有图片的角色用参数拼出来的扁平风 SVG。
 // 画布 200 × 220，脸的中线在 x = 100。
 
 const LOOKS = {
@@ -162,9 +162,16 @@ export function heroPortrait(hero, mood = 'smile') {
 }
 let heroSeq = 0;
 
+// 用 Codex 生成的 2D 立绘：assets/portraits/<id>_<mood>.jpg，四种表情。图片读不到时退回下面的 SVG
+export const ART_IDS = ['bing', 'jie', 'biao', 'boss', 'landlord', 'auntie', 'officer', 'director', 'passer', 'wen', 'lan', 'guang',
+  'chen', 'xiaok', 'zhou', 'hongyi', 'lin', 'kevin', 'amu', 'mike', 'huang', 'fang', 'haige', 'fan', 'zhang'];
+const MOODS = ['plain', 'smile', 'angry', 'sad'];
 export function portrait(id, mood = 'plain', seed = 0) {
   const L = id === 'passer' ? passerLook(seed + 1) : LOOKS[id];
-  return L ? draw(id, L, mood) : '';
+  const svg = L ? draw(id, L, mood) : '';
+  if (!ART_IDS.includes(id)) return svg;
+  const m = MOODS.includes(mood) ? mood : 'plain';
+  return `<img class="panpan art" src="assets/portraits/${id}_${m}.jpg" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>${svg}</span>`;
 }
 function draw(id, L, mood) {
   if (!L) return '';

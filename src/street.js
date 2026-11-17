@@ -211,6 +211,12 @@ export function createStreet(renderer, el, handlers) {
       labels.push({ s: tag, base: tag.scale.clone(), iso: 0.6, fp: 0.7, y: 4.6 });
       if (atEnd) tag.position.set(28.5, 4.6, 0); else tag.position.set(27.5, 4.6, -9.2);
       world.add(tag);
+      // 地标也是一个互动点：走到跟前可以看看，有时会触发这个区的插曲
+      const lmSpot = atEnd
+        ? { kind: 'landmark', id: 'landmark', name: lm.userData.name, icon: '🏛️', x: xMax - 0.6, side: 'e', stand: new THREE.Vector3(xMax - 0.6, 0, 0), faceYaw: Math.PI / 2 }
+        : { kind: 'landmark', id: 'landmark', name: lm.userData.name, icon: '🏛️', x: 27.5, side: 'n', stand: new THREE.Vector3(27.5, 0, Z_MIN + 0.3), faceYaw: Math.PI };
+      spots.push(lmSpot);
+      tag.userData.spot = lmSpot; pickables.push(tag);
     }
 
     // 地铁站、档口、服务点：每个都在自己的小坐标系里朝 +z 搭好，再摆到街的北侧或南侧
