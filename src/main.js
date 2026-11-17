@@ -773,7 +773,7 @@ function startScreen() {
   sc.innerHTML = `<div class="card glass cover">
     <div class="pitch">
       <span class="tag">30 天挑战</span>
-      <h1>潘潘<span>浮生</span>记</h1>
+      <h1>深圳<span>浮生</span>记</h1>
       <div class="sub">一只熊猫，一个行李箱，三十天，一座不睡觉的城市。潘潘揣着老乡会借的 ${yuan(CONFIG.startDebt)}，手里还剩 ${yuan(CONFIG.startCash)}。</div>
       <ul class="points">
         <li><i>📈</i><b>低买高卖</b>十个区、十样货，行情一天一变</li>
